@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: enrollment
+  profiles:
+    active: local
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+logging:
+  level:
+    com.liveklass.enrollment: debug
