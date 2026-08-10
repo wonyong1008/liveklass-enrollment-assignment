@@ -26,22 +26,35 @@
 
 ## 실행 방법
 
-### 1. MySQL 기동
+### 방법 A. Docker Compose 한 번에 실행 (권장)
 
 ```bash
-docker compose up -d
+docker compose up --build
 ```
 
-`enrollment` DB / `enrollment` 계정으로 자동 구성됩니다 (`docker-compose.yml` 참고). 애플리케이션 기동 시 Flyway가
-`src/main/resources/db/migration`의 스키마를 자동 적용합니다.
+MySQL + 애플리케이션이 한 번에 뜹니다. 앱 컨테이너가 MySQL의 헬스체크(`service_healthy`)를 기다렸다가 기동하고,
+Flyway가 `src/main/resources/db/migration`의 스키마를 자동 적용합니다. 별도 JDK/Gradle 설치 없이 Docker만 있으면 됩니다.
 
-### 2. 애플리케이션 실행
+```bash
+docker compose down          # 컨테이너 정리 (데이터는 볼륨에 유지)
+docker compose down -v       # 데이터까지 완전 초기화
+```
+
+### 방법 B. 로컬에서 실행 (DB만 Docker)
+
+```bash
+docker compose up -d mysql
+```
+
+`enrollment` DB / `enrollment` 계정으로 자동 구성됩니다 (`docker-compose.yml` 참고).
 
 ```bash
 ./gradlew bootRun
 ```
 
 기본적으로 `local` 프로필(`application-local.yml`)이 활성화되어 위 MySQL에 접속합니다.
+
+두 방법 모두 공통:
 
 - API 서버: http://localhost:8080
 - Swagger UI: http://localhost:8080/swagger-ui.html
@@ -51,9 +64,11 @@ JWT 서명 키는 환경변수 `JWT_SECRET`으로 주입할 수 있습니다(미
 
 ```bash
 JWT_SECRET=change-me-in-real-deployment ./gradlew bootRun
+# 또는
+JWT_SECRET=change-me-in-real-deployment docker compose up --build
 ```
 
-### 3. 테스트 실행
+### 테스트 실행
 
 ```bash
 ./gradlew test
