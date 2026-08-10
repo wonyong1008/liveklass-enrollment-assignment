@@ -23,3 +23,7 @@ bin/
 
 ### env ###
 .env
+
+### internal working docs (제출용 저장소에는 포함하지 않음) ###
+CLAUDE.md
+.notes/
