@@ -6,6 +6,7 @@ import com.liveklass.enrollment.common.exception.DuplicateEnrollmentException;
 import com.liveklass.enrollment.common.exception.EnrollmentNotFoundException;
 import com.liveklass.enrollment.common.exception.ForbiddenException;
 import com.liveklass.enrollment.common.exception.InvalidCourseStateException;
+import com.liveklass.enrollment.common.exception.WaitlistNotAllowedException;
 import com.liveklass.enrollment.course.Course;
 import com.liveklass.enrollment.course.CourseRepository;
 import com.liveklass.enrollment.enrollment.dto.EnrollmentResponse;
@@ -46,10 +47,7 @@ public class EnrollmentService {
             throw new InvalidCourseStateException("모집 중인 강의만 신청할 수 있습니다. status=" + course.getStatus());
         }
 
-        enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(courseId, userId, EnrollmentStatus.SEAT_HOLDING)
-                .ifPresent(e -> {
-                    throw new DuplicateEnrollmentException(courseId, userId);
-                });
+        requireNoActiveEnrollment(courseId, userId);
 
         long currentlyEnrolled = enrollmentRepository.countByCourseIdAndStatusIn(courseId, EnrollmentStatus.SEAT_HOLDING);
         if (currentlyEnrolled >= course.getCapacity()) {
@@ -57,6 +55,30 @@ public class EnrollmentService {
         }
 
         Enrollment enrollment = new Enrollment(courseId, userId, LocalDateTime.now(clock));
+        return EnrollmentResponse.from(enrollmentRepository.save(enrollment));
+    }
+
+    /**
+     * 정원이 가득 찬 경우에만 대기열에 등록할 수 있다. 좌석이 있는데 대기부터 걸게 하는 것은
+     * 사용자에게 불리하므로, 자리가 있으면 바로 신청(apply)하도록 안내한다.
+     */
+    @Transactional
+    public EnrollmentResponse joinWaitlist(String userId, Long courseId) {
+        Course course = courseRepository.findByIdForUpdate(courseId)
+                .orElseThrow(() -> new CourseNotFoundException(courseId));
+
+        if (!course.isOpenForEnrollment()) {
+            throw new InvalidCourseStateException("모집 중인 강의만 대기 신청할 수 있습니다. status=" + course.getStatus());
+        }
+
+        requireNoActiveEnrollment(courseId, userId);
+
+        long currentlyEnrolled = enrollmentRepository.countByCourseIdAndStatusIn(courseId, EnrollmentStatus.SEAT_HOLDING);
+        if (currentlyEnrolled < course.getCapacity()) {
+            throw new WaitlistNotAllowedException(courseId);
+        }
+
+        Enrollment enrollment = Enrollment.waitlisted(courseId, userId, LocalDateTime.now(clock));
         return EnrollmentResponse.from(enrollmentRepository.save(enrollment));
     }
 
@@ -70,7 +92,13 @@ public class EnrollmentService {
     @Transactional
     public EnrollmentResponse cancel(Long enrollmentId, String userId) {
         Enrollment enrollment = getOwnedEnrollmentOrThrow(enrollmentId, userId);
+        boolean wasHoldingSeat = EnrollmentStatus.SEAT_HOLDING.contains(enrollment.getStatus());
+
         enrollment.cancel(LocalDateTime.now(clock), Duration.ofDays(cancellableDays));
+
+        if (wasHoldingSeat) {
+            promoteNextWaitlisted(enrollment.getCourseId());
+        }
         return EnrollmentResponse.from(enrollment);
     }
 
@@ -86,6 +114,26 @@ public class EnrollmentService {
             throw new ForbiddenException("본인이 개설한 강의의 수강생만 조회할 수 있습니다.");
         }
         return enrollmentRepository.findByCourseId(courseId, pageable).map(EnrollmentResponse::from);
+    }
+
+    /**
+     * 좌석을 보유하던 신청이 취소되어 자리가 하나 비었을 때, 가장 먼저 대기열에 등록한 사람을
+     * PENDING으로 승급시킨다. 호출 시점에 이미 courseId에 대한 비관적 락을 다시 획득하므로
+     * 승급 처리 중 다른 신청/취소/대기 요청과 경합하지 않는다.
+     */
+    private void promoteNextWaitlisted(Long courseId) {
+        courseRepository.findByIdForUpdate(courseId)
+                .orElseThrow(() -> new CourseNotFoundException(courseId));
+
+        enrollmentRepository.findFirstByCourseIdAndStatusOrderByAppliedAtAsc(courseId, EnrollmentStatus.WAITLISTED)
+                .ifPresent(Enrollment::promote);
+    }
+
+    private void requireNoActiveEnrollment(Long courseId, String userId) {
+        enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(courseId, userId, EnrollmentStatus.ACTIVE)
+                .ifPresent(e -> {
+                    throw new DuplicateEnrollmentException(courseId, userId);
+                });
     }
 
     private Enrollment getOwnedEnrollmentOrThrow(Long enrollmentId, String userId) {
