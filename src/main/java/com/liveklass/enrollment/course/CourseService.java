@@ -45,7 +45,8 @@ public class CourseService {
     public CourseDetailResponse getDetail(Long courseId) {
         Course course = getCourseOrThrow(courseId);
         int enrolledCount = (int) enrollmentRepository.countByCourseIdAndStatusIn(courseId, EnrollmentStatus.SEAT_HOLDING);
-        return CourseDetailResponse.of(course, enrolledCount);
+        int waitlistCount = (int) enrollmentRepository.countByCourseIdAndStatus(courseId, EnrollmentStatus.WAITLISTED);
+        return CourseDetailResponse.of(course, enrolledCount, waitlistCount);
     }
 
     @Transactional

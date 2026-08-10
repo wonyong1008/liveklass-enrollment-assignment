@@ -15,11 +15,12 @@ public record CourseDetailResponse(
         int capacity,
         int enrolledCount,
         int remainingSeats,
+        int waitlistCount,
         LocalDate startDate,
         LocalDate endDate,
         CourseStatus status
 ) {
-    public static CourseDetailResponse of(Course course, int enrolledCount) {
+    public static CourseDetailResponse of(Course course, int enrolledCount, int waitlistCount) {
         return new CourseDetailResponse(
                 course.getId(),
                 course.getCreatorId(),
@@ -29,6 +30,7 @@ public record CourseDetailResponse(
                 course.getCapacity(),
                 enrolledCount,
                 Math.max(course.getCapacity() - enrolledCount, 0),
+                waitlistCount,
                 course.getStartDate(),
                 course.getEndDate(),
                 course.getStatus()
