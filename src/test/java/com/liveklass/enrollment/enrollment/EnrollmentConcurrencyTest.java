@@ -136,4 +136,76 @@ class EnrollmentConcurrencyTest {
         long myEnrollmentCount = enrollmentRepository.countByCourseIdAndStatusIn(courseId, EnrollmentStatus.SEAT_HOLDING);
         assertThat(myEnrollmentCount).isEqualTo(1);
     }
+
+    /**
+     * 좌석 보유자 여러 명이 동시에 취소되면, 대기자도 그만큼 전부 승급되어야 한다(한 명만
+     * 중복 승급되고 나머지는 누락되면 안 됨). cancel()의 첫 조회가 락 없는 SELECT라서
+     * REPEATABLE READ 하에서는 이후의 "다음 대기자 조회"가 오래된 스냅샷을 볼 수 있는데,
+     * 쓰기 트랜잭션을 READ_COMMITTED로 명시해 이 문제를 막았다(EnrollmentService 클래스
+     * 주석 참고).
+     */
+    @Test
+    void 좌석보유자_여러명이_동시취소해도_대기자_전원이_승급된다() throws InterruptedException {
+        int capacity = 3;
+
+        Course course = new Course("creator-1", "다중 승급 테스트 강의", "설명",
+                BigDecimal.valueOf(10_000), capacity, LocalDate.now(), LocalDate.now().plusDays(30));
+        course.open();
+        Long courseId = courseRepository.save(course).getId();
+
+        List<Long> holderEnrollmentIds = new java.util.ArrayList<>();
+        List<String> holderUserIds = new java.util.ArrayList<>();
+        for (int i = 0; i < capacity; i++) {
+            String userId = "holder-" + i;
+            holderUserIds.add(userId);
+            holderEnrollmentIds.add(enrollmentService.apply(userId, courseId).id());
+        }
+
+        List<String> waiterUserIds = new java.util.ArrayList<>();
+        for (int i = 0; i < capacity; i++) {
+            String userId = "waiter-" + i;
+            waiterUserIds.add(userId);
+            enrollmentService.joinWaitlist(userId, courseId);
+        }
+
+        ExecutorService executor = Executors.newFixedThreadPool(capacity);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(capacity);
+        List<Throwable> unexpectedFailures = Collections.synchronizedList(new java.util.ArrayList<>());
+
+        for (int i = 0; i < capacity; i++) {
+            String userId = holderUserIds.get(i);
+            Long enrollmentId = holderEnrollmentIds.get(i);
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    enrollmentService.cancel(enrollmentId, userId);
+                } catch (Throwable t) {
+                    unexpectedFailures.add(t);
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        boolean completed = doneLatch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        assertThat(unexpectedFailures).isEmpty();
+
+        for (String waiterUserId : waiterUserIds) {
+            var myEnrollments = enrollmentService.myEnrollments(waiterUserId, org.springframework.data.domain.PageRequest.of(0, 10));
+            assertThat(myEnrollments.getContent())
+                    .as(waiterUserId + "는 대기 순번대로 반드시 승급되어야 한다")
+                    .extracting(dto -> dto.status())
+                    .containsExactly(EnrollmentStatus.PENDING);
+        }
+
+        long seatHoldingCount = enrollmentRepository.countByCourseIdAndStatusIn(courseId, EnrollmentStatus.SEAT_HOLDING);
+        assertThat(seatHoldingCount)
+                .as("대기자 전원이 승급됐다면 정원만큼 좌석이 다시 채워져 있어야 한다")
+                .isEqualTo(capacity);
+    }
 }
