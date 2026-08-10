@@ -10,6 +10,10 @@ springdoc:
   api-docs:
     path: /v3/api-docs
 
+# 결제 확정(CONFIRMED) 후 이 기간이 지나면 취소 불가
+enrollment:
+  cancellable-days: 7
+
 logging:
   level:
     com.liveklass.enrollment: debug
