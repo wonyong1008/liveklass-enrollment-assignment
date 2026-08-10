@@ -3,6 +3,10 @@ spring:
     name: enrollment
   profiles:
     active: local
+  # 인증은 JwtAuthenticationFilter가 전담하므로 스프링 시큐리티 기본 폼로그인용
+  # 자동생성 계정(랜덤 비밀번호 로그 출력)은 사용하지 않는다.
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
 
 springdoc:
   swagger-ui:
