@@ -4,16 +4,16 @@ services:
     container_name: liveklass-enrollment-mysql
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: enrollment
-      MYSQL_USER: enrollment
-      MYSQL_PASSWORD: enrollment1234
-      MYSQL_ROOT_PASSWORD: root1234
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-enrollment}
+      MYSQL_USER: ${MYSQL_USER:-enrollment}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-enrollment1234}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root1234}
     ports:
       - "3306:3306"
     volumes:
       - liveklass-mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot1234"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root1234}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -27,9 +27,9 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: local
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/enrollment?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
-      SPRING_DATASOURCE_USERNAME: enrollment
-      SPRING_DATASOURCE_PASSWORD: enrollment1234
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-enrollment}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-enrollment}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-enrollment1234}
       JWT_SECRET: ${JWT_SECRET:-liveklass-assignment-local-dev-secret-key-please-rotate}
     ports:
       - "8080:8080"
