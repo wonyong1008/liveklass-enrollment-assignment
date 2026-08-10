@@ -244,6 +244,28 @@ erDiagram
 처리되며, 승급된 엔트리는 `enrollmentRepository.save()`를 명시적으로 호출하지 않아도 JPA 변경 감지(dirty checking)로 같은
 트랜잭션 커밋 시 반영됩니다.
 
+### 쓰기 트랜잭션을 READ_COMMITTED로 명시한 이유
+
+위 "같은 락 재사용" 설명만으로는 실제로 안전하지 않은 지점이 하나 있었습니다. `cancel()`의 **첫 쿼리가 락 없는 일반 SELECT**
+(`getOwnedEnrollmentOrThrow`)라는 점이 문제입니다. MySQL InnoDB의 기본 격리수준인 REPEATABLE READ는 트랜잭션의 첫 읽기
+시점에 스냅샷을 고정하고, 락이 걸리지 않은 SELECT는 이후 계속 그 스냅샷만 봅니다(락이 걸린 읽기만 예외적으로 항상 최신 커밋을
+봅니다). 즉 `cancel()` -> `promoteNextWaitlisted()` 순서로 보면, 뒤쪽의 "대기 1순위 조회"가 락 획득 **이전** 시점의 오래된
+스냅샷을 참조할 수 있어, 다른 트랜잭션이 그사이 커밋한 승급을 못 보고 같은 대기자를 다시 고르는 경합이 이론적으로 가능했습니다
+(정원 N명, 좌석 보유자 N명이 동시에 취소하고 대기자가 N명 있을 때, 일부 대기자가 승급되지 않고 좌석이 빈 채로 남는 시나리오).
+
+`apply()`/`joinWaitlist()`는 첫 쿼리가 곧바로 `findByIdForUpdate`(락 읽기)라 이 문제가 없지만, 일관성과 방어적 설계를 위해
+정원/대기열에 영향을 주는 쓰기 메서드(`apply`, `joinWaitlist`, `cancel`) 전체에 `@Transactional(isolation = Isolation.READ_COMMITTED)`를
+명시했습니다. 이 서비스의 동시성 정합성은 스냅샷 격리가 아니라 명시적 비관적 락으로 직접 보장하므로, 매 쿼리가 항상 최신 커밋을
+보는 READ_COMMITTED가 우리 전략과 맞습니다. `EnrollmentConcurrencyTest#좌석보유자_여러명이_동시취소해도_대기자_전원이_승급된다`가
+정원만큼의 좌석 보유자가 동시에 취소해도 같은 수의 대기자 전원이 승급되는지 검증합니다.
+
+**실제 MySQL로 버그 재현 후 수정을 검증했습니다.** 정원 2명 강의에 좌석 보유자 2명, 대기자 2명을 만들어두고 두 좌석 보유자를
+동시에 취소하는 시나리오를(`docker compose`로 띄운 실제 MySQL에 curl 두 개를 백그라운드로 동시 실행) 격리수준 수정 전 이미지로
+먼저 실행했더니, 대기자 1명만 승급되고 나머지 1명은 좌석이 비어있는데도 `WAITLISTED`로 남아 `enrolledCount=1`(정원 2명 중
+1명만 채워짐)이 되는 것을 확인했습니다. 같은 시나리오를 수정 후 이미지로 재실행하자 두 대기자 모두 `PENDING`으로 승급되고
+`enrolledCount=2, waitlistCount=0`으로 정상 동작했습니다. H2 기반 단위테스트는 H2의 기본 격리수준이 MySQL과 달라 이 문제를
+재현하지 못했을 가능성이 있어, 위 수동 검증으로 실제 MySQL 환경에서의 수정 효과를 별도로 확인했습니다.
+
 ### 아키텍처 스타일 — DDD-lite
 
 리포지토리 인터페이스를 domain에 두고 JPA 구현체를 infrastructure로 분리하는 완전한 헥사고날 구조 대신,
