@@ -1,6 +1,7 @@
 package com.liveklass.enrollment.enrollment;
 
 import com.liveklass.enrollment.common.exception.CapacityExceededException;
+import com.liveklass.enrollment.common.exception.DuplicateEnrollmentException;
 import com.liveklass.enrollment.course.Course;
 import com.liveklass.enrollment.course.CourseRepository;
 import org.junit.jupiter.api.Test;
@@ -84,5 +85,55 @@ class EnrollmentConcurrencyTest {
         assertThat(seatHoldingCount)
                 .as("실제 DB에 반영된 신청 건수도 정원을 넘으면 안 된다")
                 .isEqualTo(capacity);
+    }
+
+    /**
+     * 정원 경합뿐 아니라, 같은 사용자가 "신청" 버튼을 여러 번 빠르게 눌러 동시에 여러 요청이
+     * 들어와도 중복 신청이 생기면 안 된다. apply()가 거는 Course 락이 동일 사용자의 동시
+     * 요청도 같은 방식으로 직렬화하는지 검증한다.
+     */
+    @Test
+    void 같은_사용자가_동시에_여러번_신청해도_하나만_성공한다() throws InterruptedException {
+        int requestCount = 10;
+
+        Course course = new Course("creator-1", "중복클릭 테스트 강의", "설명",
+                BigDecimal.valueOf(10_000), 10, LocalDate.now(), LocalDate.now().plusDays(30));
+        course.open();
+        Long courseId = courseRepository.save(course).getId();
+
+        ExecutorService executor = Executors.newFixedThreadPool(requestCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(requestCount);
+        AtomicInteger successCount = new AtomicInteger();
+        AtomicInteger duplicateCount = new AtomicInteger();
+        List<Throwable> unexpectedFailures = Collections.synchronizedList(new java.util.ArrayList<>());
+
+        for (int i = 0; i < requestCount; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    enrollmentService.apply("same-user", courseId);
+                    successCount.incrementAndGet();
+                } catch (DuplicateEnrollmentException e) {
+                    duplicateCount.incrementAndGet();
+                } catch (Throwable t) {
+                    unexpectedFailures.add(t);
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        boolean completed = doneLatch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        assertThat(unexpectedFailures).isEmpty();
+        assertThat(successCount.get()).isEqualTo(1);
+        assertThat(duplicateCount.get()).isEqualTo(requestCount - 1);
+
+        long myEnrollmentCount = enrollmentRepository.countByCourseIdAndStatusIn(courseId, EnrollmentStatus.SEAT_HOLDING);
+        assertThat(myEnrollmentCount).isEqualTo(1);
     }
 }
