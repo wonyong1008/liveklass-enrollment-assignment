@@ -26,14 +26,26 @@
 
 ## 실행 방법
 
+### 0. 환경변수 설정
+
+DB 비밀번호, JWT 서명 키 등은 `docker-compose.yml`에 하드코딩하지 않고 `.env`로 분리했습니다. 최초 1회만 실행하면 됩니다.
+
+```bash
+cp .env.example .env
+```
+
+`.env`는 `.gitignore`에 등록되어 있어 커밋되지 않습니다. `.env.example`에 필요한 키 목록과 로컬 개발용 기본값이 정리되어 있으니,
+운영 배포 시에는 이 값들을(특히 `JWT_SECRET`) 실제 비밀값으로 교체해서 사용하면 됩니다.
+
 ### 방법 A. Docker Compose 한 번에 실행 (권장)
 
 ```bash
 docker compose up --build
 ```
 
-MySQL + 애플리케이션이 한 번에 뜹니다. 앱 컨테이너가 MySQL의 헬스체크(`service_healthy`)를 기다렸다가 기동하고,
-Flyway가 `src/main/resources/db/migration`의 스키마를 자동 적용합니다. 별도 JDK/Gradle 설치 없이 Docker만 있으면 됩니다.
+MySQL + 애플리케이션이 한 번에 뜹니다. `docker compose`가 `.env`를 자동으로 읽어 두 컨테이너에 주입하고, 앱 컨테이너는
+MySQL의 헬스체크(`service_healthy`)를 기다렸다가 기동하며, Flyway가 `src/main/resources/db/migration`의 스키마를 자동
+적용합니다. 별도 JDK/Gradle 설치 없이 Docker만 있으면 됩니다.
 
 ```bash
 docker compose down          # 컨테이너 정리 (데이터는 볼륨에 유지)
@@ -248,6 +260,13 @@ erDiagram
 
 Spring 6의 `ProblemDetail`(RFC 7807)을 사용해 일관된 에러 응답 포맷(`type`, `title`, `status`, `detail`, `instance`)을
 제공합니다. 별도 커스텀 에러 DTO를 만들지 않고 표준을 따랐습니다.
+
+### 비밀값 관리 — .env
+
+AWS Parameter Store/Secrets Manager 같은 별도 비밀 관리 인프라는 과제 스코프에 오버스펙이라고 판단했습니다. 대신 DB
+비밀번호, JWT 서명 키처럼 코드에 하드코딩하면 안 되는 값은 `docker-compose.yml`에서 분리해 `.env`(git 미추적)로 주입하고,
+필요한 키 목록은 `.env.example`로 문서화했습니다. 운영 환경으로 옮긴다면 이 자리를 Parameter Store/Secrets Manager 등으로
+교체하는 지점이 됩니다.
 
 ### record 사용 범위
 
