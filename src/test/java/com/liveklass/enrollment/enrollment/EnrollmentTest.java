@@ -81,4 +81,37 @@ class EnrollmentTest {
         assertThatThrownBy(() -> enrollment.cancel(LocalDateTime.now(), CANCELLABLE_WINDOW))
                 .isInstanceOf(InvalidEnrollmentStateException.class);
     }
+
+    @Test
+    void 대기_등록하면_WAITLISTED_상태다() {
+        Enrollment enrollment = Enrollment.waitlisted(1L, "user-1", LocalDateTime.now());
+
+        assertThat(enrollment.getStatus()).isEqualTo(EnrollmentStatus.WAITLISTED);
+    }
+
+    @Test
+    void 대기중인_신청이_승급되면_PENDING이_된다() {
+        Enrollment enrollment = Enrollment.waitlisted(1L, "user-1", LocalDateTime.now());
+
+        enrollment.promote();
+
+        assertThat(enrollment.getStatus()).isEqualTo(EnrollmentStatus.PENDING);
+    }
+
+    @Test
+    void 대기중인_신청은_기간_제한_없이_취소할_수_있다() {
+        Enrollment enrollment = Enrollment.waitlisted(1L, "user-1", LocalDateTime.now());
+
+        enrollment.cancel(LocalDateTime.now(), CANCELLABLE_WINDOW);
+
+        assertThat(enrollment.getStatus()).isEqualTo(EnrollmentStatus.CANCELLED);
+    }
+
+    @Test
+    void 대기중인_신청은_바로_결제확정할_수_없다() {
+        Enrollment enrollment = Enrollment.waitlisted(1L, "user-1", LocalDateTime.now());
+
+        assertThatThrownBy(() -> enrollment.confirm(LocalDateTime.now()))
+                .isInstanceOf(InvalidEnrollmentStateException.class);
+    }
 }
