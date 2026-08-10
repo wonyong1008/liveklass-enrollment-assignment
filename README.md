@@ -79,9 +79,10 @@ JWT_SECRET=change-me-in-real-deployment ./gradlew bootRun
 | POST | `/api/courses/{courseId}/open` | 모집 시작 (DRAFT→OPEN) | O (개설자 본인만) |
 | POST | `/api/courses/{courseId}/close` | 모집 마감 (OPEN→CLOSED) | O (개설자 본인만) |
 | GET | `/api/courses/{courseId}/enrollments` | 강의별 수강생 목록 (선택 구현) | O (개설자 본인만) |
-| POST | `/api/enrollments` | 수강 신청 | O |
+| POST | `/api/enrollments` | 수강 신청. 정원이 가득 찼으면 409 | O |
+| POST | `/api/courses/{courseId}/waitlist` | 대기 신청 (선택 구현). 정원이 가득 찼을 때만 등록 가능 | O |
 | POST | `/api/enrollments/{id}/confirm` | 결제 확정 (PENDING→CONFIRMED) | O (신청자 본인만) |
-| POST | `/api/enrollments/{id}/cancel` | 수강 취소 | O (신청자 본인만) |
+| POST | `/api/enrollments/{id}/cancel` | 수강 취소. 좌석을 보유하고 있었다면 대기 1순위가 자동 승급됨 | O (신청자 본인만) |
 | GET | `/api/enrollments/me` | 내 수강 신청 목록 (선택 구현: 페이지네이션) | O |
 
 ### 예시: 로그인 → 강의 개설 → 신청 → 정원 초과
@@ -113,7 +114,32 @@ curl -i -X POST http://localhost:8080/api/enrollments \
 #     "detail":"정원이 마감되어 신청할 수 없습니다. courseId=1","instance":"/api/enrollments"}
 ```
 
-위 예시는 실제로 로컬 MySQL에 대해 실행해 확인한 결과입니다. 전체 API 스펙은 Swagger UI에서 직접 호출하며 확인할 수 있습니다.
+### 예시: 대기열 등록 → 좌석 보유자 취소 → 자동 승급
+
+```bash
+# capacity=1인 강의에 student-a가 이미 신청해 좌석이 꽉 찬 상태
+
+# student-b가 일반 신청 -> 409 (정원초과, 필수 요구사항 그대로 유지)
+curl -i -X POST http://localhost:8080/api/enrollments \
+  -H "Authorization: Bearer $STUDENT_B_TOKEN" -H "Content-Type: application/json" -d '{"courseId":2}'
+# -> HTTP/1.1 409
+
+# student-b가 대기 등록
+curl -X POST http://localhost:8080/api/courses/2/waitlist -H "Authorization: Bearer $STUDENT_B_TOKEN"
+# -> {"id":4,"courseId":2,"userId":"wl-student-b","status":"WAITLISTED", ...}
+
+# 강의 상세에서 대기 인원 확인
+curl http://localhost:8080/api/courses/2 -H "Authorization: Bearer $CREATOR_TOKEN"
+# -> {"...", "enrolledCount":1, "remainingSeats":0, "waitlistCount":1, ...}
+
+# student-a가 취소 -> 좌석이 하나 비면서 student-b가 자동으로 PENDING 승급
+curl -X POST http://localhost:8080/api/enrollments/3/cancel -H "Authorization: Bearer $STUDENT_A_TOKEN"
+
+curl http://localhost:8080/api/enrollments/me -H "Authorization: Bearer $STUDENT_B_TOKEN"
+# -> {"content":[{"id":4,"courseId":2,"userId":"wl-student-b","status":"PENDING", ...}], ...}
+```
+
+위 예시들은 실제로 로컬 MySQL에 대해 실행해 확인한 결과입니다. 전체 API 스펙은 Swagger UI에서 직접 호출하며 확인할 수 있습니다.
 
 ## 데이터 모델 설명
 
@@ -136,7 +162,7 @@ erDiagram
         bigint id PK
         bigint course_id FK
         varchar user_id
-        varchar status "PENDING / CONFIRMED / CANCELLED"
+        varchar status "PENDING / CONFIRMED / CANCELLED / WAITLISTED"
         datetime applied_at
         datetime confirmed_at
         datetime cancelled_at
@@ -161,6 +187,7 @@ erDiagram
 - **강의 상태 전이는 단방향**입니다(`DRAFT`→`OPEN`→`CLOSED`, 역방향 불가). 마감된 강의를 다시 열어야 하는 요구사항은 과제 범위에 없다고 판단했습니다.
 - **인증/인가**: 과제 제약사항은 `userId`를 헤더로 전달하는 간이 방식을 허용하지만, JD의 "Spring Security 기반 인증/인가" 요건에 맞춰 JWT 발급/검증 방식으로 구현했습니다. 다만 회원가입·비밀번호 체계는 과제 범위 밖이라, `userId`만 넘기면 토큰을 발급하는 간이 로그인(`POST /api/auth/token`)으로 대체했습니다. 실제 서비스라면 이 자리에 자격 증명 검증이 들어갑니다.
 - **취소 가능 기간**(선택 구현): 결제 확정 시점 기준 7일 이내만 취소 가능하도록 구현했습니다(`enrollment.cancellable-days` 설정으로 조정 가능). `PENDING` 상태(결제 전)는 기간 제한 없이 취소할 수 있습니다.
+- **대기열**(선택 구현): "정원이 초과되면 신청이 불가합니다"라는 필수 요구사항은 그대로 유지하고(`POST /api/enrollments`는 정원 초과 시 항상 409), 정원이 실제로 가득 찼을 때만 별도 엔드포인트(`POST /api/courses/{courseId}/waitlist`)로 대기 등록할 수 있게 했습니다. 대기자는 정원 계산에 포함되지 않고, 좌석을 보유한 신청이 취소되는 시점에 대기 1순위(FIFO)가 자동으로 `PENDING`으로 승급됩니다. 승급은 별도 배치/스케줄러가 아니라 취소 요청 처리 트랜잭션 안에서 동기적으로 일어납니다.
 
 ## 설계 결정과 이유
 
@@ -180,6 +207,15 @@ erDiagram
 | Redis 분산락 | 다중 인스턴스/수평 확장에 유리 | 별도 인프라 필요, 과제 제약사항("실제 브로커/캐시 설치 불필요")과 맞지 않음 | 미채택(멀티 인스턴스 확장 시 고려 대상으로 남김) |
 
 단일 인스턴스·단일 DB라는 과제 스코프에서는 비관적 락이 가장 단순하면서도 확실하게 요구사항을 만족시킵니다.
+
+### 대기열 승급 — 같은 락 재사용
+
+`EnrollmentService.cancel()`은 취소 전 상태가 좌석을 보유(`SEAT_HOLDING`)하고 있었는지 먼저 확인해두고, 취소 처리 후 그 경우에만
+`promoteNextWaitlisted()`를 호출합니다. 이 메서드는 신청(`apply`)과 **동일한 `courseRepository.findByIdForUpdate()` 비관적 락**을
+다시 획득한 뒤 대기 1순위를 승급시킵니다. 신청·취소·대기등록이 전부 같은 락 위에서 직렬화되기 때문에, 두 명이 동시에 취소해 좌석이
+두 개 비어도 대기자를 중복 승급하거나 누락하는 경합이 생기지 않습니다. 별도 배치/스케줄러 없이 취소 요청 트랜잭션 안에서 동기적으로
+처리되며, 승급된 엔트리는 `enrollmentRepository.save()`를 명시적으로 호출하지 않아도 JPA 변경 감지(dirty checking)로 같은
+트랜잭션 커밋 시 반영됩니다.
 
 ### 아키텍처 스타일 — DDD-lite
 
@@ -213,6 +249,12 @@ join도 발생하지 않습니다. QueryDSL은 여러 optional 조건을 조합�
 지금 스코프에는 해당하지 않아 도입하지 않았습니다. 이후 강의 검색에 "제목 키워드 + 가격범위 + 기간 + 상태"처럼 optional 필드가
 여러 개 조합되는 요구가 생기면 `BooleanBuilder` 기반 동적 쿼리로 전환할 지점으로 남겨둡니다.
 
+### 페이지네이션 응답 — PageResponse로 래핑
+
+목록 API가 Spring Data의 `Page<T>`를 그대로 반환하면 `pageable`, `sort` 같은 Spring 내부 구현 세부사항이 API 계약에 그대로
+노출됩니다. 서비스 레이어는 `Page<T>`를 반환하되, 컨트롤러 경계에서 `content`/`page`/`size`/`totalElements`/`totalPages`/
+`hasNext`만 남긴 `PageResponse<T>`로 감싸 클라이언트에는 필요한 필드만 노출합니다.
+
 ## 테스트 실행 방법
 
 ```bash
@@ -226,13 +268,14 @@ join도 발생하지 않습니다. QueryDSL은 여러 optional 조건을 조합�
 
 ## 미구현 / 제약사항
 
-- **대기열(waitlist)**: 미구현. 정원 초과 시 즉시 거부만 하며, 취소 발생 시 대기자에게 자리를 자동 배정하는 기능은 없습니다.
+- **대기열 승급 알림**: 승급(WAITLISTED→PENDING)은 서버에서 즉시(동기) 처리되지만, 이를 사용자에게 실시간으로 알려주는 웹소켓/SSE/푸시는 없습니다. 프론트에서는 `GET /api/enrollments/me` 폴링이나 새로고침으로 최신 상태를 확인해야 합니다. 실시간 알림 체계는 과제 C(알림 발송 시스템) 영역이라 범위 밖으로 뒀습니다.
+- **결제 확정 기한 없음**: 신청(대기열 승급 포함)이 `PENDING`으로 남아있는 동안 결제 확정을 기다리는 시간 제한이 없습니다. 실제 서비스라면 "N분 내 미결제 시 자동 취소·다음 대기자에게 재배정" 같은 정책이 필요하지만, 과제 A 요구사항에 명시되지 않아 구현하지 않았습니다.
 - **알림/이메일**: 신청·확정·취소에 대한 알림 발송은 과제 A 범위가 아니라 구현하지 않았습니다.
 - **회원가입/비밀번호 인증**: 위 "요구사항 해석 및 가정" 참고 — `userId` 기반 간이 로그인만 있습니다.
 - **다중 인스턴스 환경**: 비관적 락은 단일 DB 기준으로는 안전하지만, DB를 샤딩하거나 리드/라이트를 분리하는 구성에서는 별도 검토가 필요합니다(Redis 분산락 등).
 - **강의 상태 역행**: `CLOSED`에서 `OPEN`으로 되돌리는 기능은 없습니다.
 
-구현한 선택 항목: 수강 취소 가능 기간 제한, 강의별 수강생 목록 조회(크리에이터 전용), 신청 내역 페이지네이션.
+구현한 선택 항목: 수강 취소 가능 기간 제한, 강의별 수강생 목록 조회(크리에이터 전용), 신청 내역 페이지네이션, **대기열(waitlist)**.
 
 ## AI 활용 범위
 
