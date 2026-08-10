@@ -14,6 +14,11 @@ springdoc:
 enrollment:
   cancellable-days: 7
 
+jwt:
+  # 운영 환경에서는 반드시 환경변수로 주입 (여기 기본값은 로컬 개발용)
+  secret: ${JWT_SECRET:liveklass-assignment-local-dev-secret-key-please-rotate}
+  expiration-seconds: 3600
+
 logging:
   level:
     com.liveklass.enrollment: debug
