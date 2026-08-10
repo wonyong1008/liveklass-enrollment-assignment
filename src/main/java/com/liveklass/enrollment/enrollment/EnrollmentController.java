@@ -1,12 +1,12 @@
 package com.liveklass.enrollment.enrollment;
 
+import com.liveklass.enrollment.common.PageResponse;
 import com.liveklass.enrollment.enrollment.dto.EnrollmentRequest;
 import com.liveklass.enrollment.enrollment.dto.EnrollmentResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -33,6 +33,13 @@ public class EnrollmentController {
         return enrollmentService.apply(authentication.getName(), request.courseId());
     }
 
+    @Operation(summary = "대기 신청", description = "정원이 가득 찬 강의에만 등록할 수 있다(WAITLISTED). 자리가 나면 대기 순번대로 자동 승급된다.")
+    @PostMapping("/api/courses/{courseId}/waitlist")
+    @ResponseStatus(HttpStatus.CREATED)
+    public EnrollmentResponse joinWaitlist(@PathVariable Long courseId, Authentication authentication) {
+        return enrollmentService.joinWaitlist(authentication.getName(), courseId);
+    }
+
     @Operation(summary = "결제 확정", description = "PENDING -> CONFIRMED. 신청자 본인만 호출할 수 있다.")
     @PostMapping("/api/enrollments/{enrollmentId}/confirm")
     public EnrollmentResponse confirm(@PathVariable Long enrollmentId, Authentication authentication) {
@@ -47,15 +54,15 @@ public class EnrollmentController {
 
     @Operation(summary = "내 수강 신청 목록 조회")
     @GetMapping("/api/enrollments/me")
-    public Page<EnrollmentResponse> myEnrollments(Authentication authentication, Pageable pageable) {
-        return enrollmentService.myEnrollments(authentication.getName(), pageable);
+    public PageResponse<EnrollmentResponse> myEnrollments(Authentication authentication, Pageable pageable) {
+        return PageResponse.from(enrollmentService.myEnrollments(authentication.getName(), pageable));
     }
 
     @Operation(summary = "강의별 수강생 목록 조회", description = "강의 개설자 본인만 호출할 수 있다.")
     @GetMapping("/api/courses/{courseId}/enrollments")
-    public Page<EnrollmentResponse> courseEnrollments(@PathVariable Long courseId,
-                                                        Authentication authentication,
-                                                        Pageable pageable) {
-        return enrollmentService.courseEnrollments(courseId, authentication.getName(), pageable);
+    public PageResponse<EnrollmentResponse> courseEnrollments(@PathVariable Long courseId,
+                                                                Authentication authentication,
+                                                                Pageable pageable) {
+        return PageResponse.from(enrollmentService.courseEnrollments(courseId, authentication.getName(), pageable));
     }
 }
