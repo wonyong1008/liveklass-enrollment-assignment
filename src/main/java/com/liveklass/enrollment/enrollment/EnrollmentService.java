@@ -15,12 +15,22 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
+/**
+ * 이 서비스는 정원/대기열 정합성을 MySQL의 스냅샷 격리가 아니라 {@code Course} row에 대한
+ * 명시적 비관적 락으로 직접 제어한다. MySQL InnoDB의 기본 격리수준인 REPEATABLE READ에서는
+ * 트랜잭션의 "첫 읽기"가 스냅샷을 고정하고, 락이 걸리지 않은 일반 SELECT는 그 스냅샷만 본다
+ * (락을 건 읽기만 예외적으로 항상 최신 커밋을 본다). {@code cancel()}처럼 락 없는 조회가 먼저
+ * 일어나고 그 뒤에 락을 거는 순서로 로직이 짜여 있으면, 락 이후의 일반 SELECT가 락 획득 이전의
+ * 오래된 스냅샷을 보게 되어 방금 커밋된 변경(예: 다른 트랜잭션이 승급시킨 대기자)을 놓칠 수 있다.
+ * 그래서 쓰기 트랜잭션은 READ_COMMITTED로 명시해 매 쿼리가 항상 최신 커밋을 보도록 통일한다.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -38,19 +48,11 @@ public class EnrollmentService {
      * 한 트랜잭션에서 수행한다. 동시에 여러 요청이 마지막 한 자리를 신청해도 이 락 때문에
      * 한 번에 하나씩만 통과하므로 정원 초과(오버셀)가 발생하지 않는다.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public EnrollmentResponse apply(String userId, Long courseId) {
-        Course course = courseRepository.findByIdForUpdate(courseId)
-                .orElseThrow(() -> new CourseNotFoundException(courseId));
+        CourseSeatSnapshot snapshot = lockCourseForEnrollment(courseId, userId, "신청");
 
-        if (!course.isOpenForEnrollment()) {
-            throw new InvalidCourseStateException("모집 중인 강의만 신청할 수 있습니다. status=" + course.getStatus());
-        }
-
-        requireNoActiveEnrollment(courseId, userId);
-
-        long currentlyEnrolled = enrollmentRepository.countByCourseIdAndStatusIn(courseId, EnrollmentStatus.SEAT_HOLDING);
-        if (currentlyEnrolled >= course.getCapacity()) {
+        if (snapshot.currentlyEnrolled() >= snapshot.course().getCapacity()) {
             throw new CapacityExceededException(courseId);
         }
 
@@ -62,19 +64,11 @@ public class EnrollmentService {
      * 정원이 가득 찬 경우에만 대기열에 등록할 수 있다. 좌석이 있는데 대기부터 걸게 하는 것은
      * 사용자에게 불리하므로, 자리가 있으면 바로 신청(apply)하도록 안내한다.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public EnrollmentResponse joinWaitlist(String userId, Long courseId) {
-        Course course = courseRepository.findByIdForUpdate(courseId)
-                .orElseThrow(() -> new CourseNotFoundException(courseId));
+        CourseSeatSnapshot snapshot = lockCourseForEnrollment(courseId, userId, "대기 신청");
 
-        if (!course.isOpenForEnrollment()) {
-            throw new InvalidCourseStateException("모집 중인 강의만 대기 신청할 수 있습니다. status=" + course.getStatus());
-        }
-
-        requireNoActiveEnrollment(courseId, userId);
-
-        long currentlyEnrolled = enrollmentRepository.countByCourseIdAndStatusIn(courseId, EnrollmentStatus.SEAT_HOLDING);
-        if (currentlyEnrolled < course.getCapacity()) {
+        if (snapshot.currentlyEnrolled() < snapshot.course().getCapacity()) {
             throw new WaitlistNotAllowedException(courseId);
         }
 
@@ -89,7 +83,7 @@ public class EnrollmentService {
         return EnrollmentResponse.from(enrollment);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public EnrollmentResponse cancel(Long enrollmentId, String userId) {
         Enrollment enrollment = getOwnedEnrollmentOrThrow(enrollmentId, userId);
         boolean wasHoldingSeat = EnrollmentStatus.SEAT_HOLDING.contains(enrollment.getStatus());
@@ -114,6 +108,28 @@ public class EnrollmentService {
             throw new ForbiddenException("본인이 개설한 강의의 수강생만 조회할 수 있습니다.");
         }
         return enrollmentRepository.findByCourseId(courseId, pageable).map(EnrollmentResponse::from);
+    }
+
+    /**
+     * apply/joinWaitlist가 공통으로 필요로 하는 전제조건(락, 모집중 여부, 중복신청 여부)을
+     * 확인하고 현재 신청 인원을 함께 돌려준다. 정원과 비교하는 방향(넘으면 안 됨 / 안 넘으면 안 됨)만
+     * 호출부에서 갈린다.
+     */
+    private CourseSeatSnapshot lockCourseForEnrollment(Long courseId, String userId, String action) {
+        Course course = courseRepository.findByIdForUpdate(courseId)
+                .orElseThrow(() -> new CourseNotFoundException(courseId));
+
+        if (!course.isOpenForEnrollment()) {
+            throw new InvalidCourseStateException("모집 중인 강의만 " + action + "할 수 있습니다. status=" + course.getStatus());
+        }
+
+        requireNoActiveEnrollment(courseId, userId);
+
+        long currentlyEnrolled = enrollmentRepository.countByCourseIdAndStatusIn(courseId, EnrollmentStatus.SEAT_HOLDING);
+        return new CourseSeatSnapshot(course, currentlyEnrolled);
+    }
+
+    private record CourseSeatSnapshot(Course course, long currentlyEnrolled) {
     }
 
     /**
