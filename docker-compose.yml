@@ -18,5 +18,21 @@ services:
       timeout: 5s
       retries: 10
 
+  app:
+    build: .
+    container_name: liveklass-enrollment-app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/enrollment?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: enrollment
+      SPRING_DATASOURCE_PASSWORD: enrollment1234
+      JWT_SECRET: ${JWT_SECRET:-liveklass-assignment-local-dev-secret-key-please-rotate}
+    ports:
+      - "8080:8080"
+
 volumes:
   liveklass-mysql-data:
