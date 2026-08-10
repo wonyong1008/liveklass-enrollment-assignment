@@ -57,6 +57,13 @@ public class Enrollment extends BaseTimeEntity {
         this.appliedAt = appliedAt;
     }
 
+    /** 정원이 가득 찼을 때 대기 상태로 생성한다. */
+    public static Enrollment waitlisted(Long courseId, String userId, LocalDateTime appliedAt) {
+        Enrollment enrollment = new Enrollment(courseId, userId, appliedAt);
+        enrollment.status = EnrollmentStatus.WAITLISTED;
+        return enrollment;
+    }
+
     public boolean isOwnedBy(String userId) {
         return this.userId.equals(userId);
     }
@@ -79,6 +86,11 @@ public class Enrollment extends BaseTimeEntity {
         }
         transitionTo(EnrollmentStatus.CANCELLED);
         this.cancelledAt = now;
+    }
+
+    /** 좌석이 비어 대기 순번이 자리를 배정받았을 때 호출한다. 이후 일반 신청처럼 결제 확정/취소를 거친다. */
+    public void promote() {
+        transitionTo(EnrollmentStatus.PENDING);
     }
 
     private void transitionTo(EnrollmentStatus target) {
