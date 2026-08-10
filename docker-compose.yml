@@ -1,0 +1,22 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: liveklass-enrollment-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: enrollment
+      MYSQL_USER: enrollment
+      MYSQL_PASSWORD: enrollment1234
+      MYSQL_ROOT_PASSWORD: root1234
+    ports:
+      - "3306:3306"
+    volumes:
+      - liveklass-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot1234"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  liveklass-mysql-data:
