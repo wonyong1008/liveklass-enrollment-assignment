@@ -1,5 +1,6 @@
 package com.liveklass.enrollment.course;
 
+import com.liveklass.enrollment.common.PageResponse;
 import com.liveklass.enrollment.course.dto.CourseCreateRequest;
 import com.liveklass.enrollment.course.dto.CourseDetailResponse;
 import com.liveklass.enrollment.course.dto.CourseResponse;
@@ -8,7 +9,6 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -39,9 +39,9 @@ public class CourseController {
 
     @Operation(summary = "강의 목록 조회", description = "상태(status)로 필터링할 수 있다. 미지정 시 전체 조회.")
     @GetMapping
-    public Page<CourseResponse> list(@Parameter(description = "DRAFT/OPEN/CLOSED") @RequestParam(required = false) CourseStatus status,
-                                      Pageable pageable) {
-        return courseService.list(status, pageable);
+    public PageResponse<CourseResponse> list(@Parameter(description = "DRAFT/OPEN/CLOSED") @RequestParam(required = false) CourseStatus status,
+                                              Pageable pageable) {
+        return PageResponse.from(courseService.list(status, pageable));
     }
 
     @Operation(summary = "강의 상세 조회", description = "현재 신청 인원(enrolledCount), 잔여 좌석(remainingSeats)을 함께 반환한다.")
