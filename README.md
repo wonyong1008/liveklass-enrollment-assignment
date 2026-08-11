@@ -86,7 +86,10 @@ JWT_SECRET=change-me-in-real-deployment docker compose up --build
 ./gradlew test
 ```
 
-테스트는 `test` 프로필(H2 인메모리)로 동작하므로 MySQL이 없어도 실행됩니다.
+테스트는 `test` 프로필(H2 인메모리)로 동작하므로 MySQL이 없어도 실행됩니다. Hibernate가 즉석에서 만든 스키마가 아니라
+**실제 배포되는 `db/migration/V1__init_schema.sql`을 Flyway로 H2에 그대로 적용**하고 `ddl-auto: validate`로 엔티티
+매핑과 일치하는지 검증합니다. 마이그레이션 스크립트에 오타나 타입 불일치가 생기면 테스트 스위트가 `SchemaManagementException`으로
+바로 잡아냅니다(실제로 `price` 컬럼 타입을 일부러 틀리게 바꿔서 테스트가 즉시 실패하는 것을 확인한 뒤 되돌렸습니다).
 
 ```bash
 # 특정 클래스만 실행
@@ -265,6 +268,19 @@ erDiagram
 1명만 채워짐)이 되는 것을 확인했습니다. 같은 시나리오를 수정 후 이미지로 재실행하자 두 대기자 모두 `PENDING`으로 승급되고
 `enrolledCount=2, waitlistCount=0`으로 정상 동작했습니다. H2 기반 단위테스트는 H2의 기본 격리수준이 MySQL과 달라 이 문제를
 재현하지 못했을 가능성이 있어, 위 수동 검증으로 실제 MySQL 환경에서의 수정 효과를 별도로 확인했습니다.
+
+### Enrollment 자체도 비관적 락으로 조회하는 이유
+
+READ_COMMITTED로도 못 막는 경합이 하나 더 있었습니다. `confirm()`/`cancel()`이 대상 `Enrollment`를 락 없는 `findById`로
+조회하다 보니, **같은 신청 건에 대한 동시 요청**(취소 버튼 더블클릭, 클라이언트 재시도 등)이 서로의 커밋을 못 보고 둘 다
+"처리 전" 상태로 판단할 수 있었습니다. 특히 `cancel()`에서는 두 요청이 각자 `wasHoldingSeat=true`로 판단해 대기자를
+각각 승급시켜, 실제로는 좌석이 1개만 비었는데 대기자 2명이 승급되는 **정원 초과**로 이어질 수 있었습니다(승급 로직 자체는
+Course 락으로 직렬화되어 있어도, 애초에 "좌석이 비었다"는 판단 자체가 중복으로 내려지는 문제라 Course 락만으로는 못 막습니다).
+
+`EnrollmentRepository.findByIdForUpdate()`를 추가해 `getOwnedEnrollmentOrThrow()`가 이 락 걸린 조회를 쓰도록 바꿨습니다.
+이러면 두 번째 요청은 락 대기 후 이미 `CANCELLED`로 바뀐 최신 상태를 보게 되어 `InvalidEnrollmentStateException`(409)을
+정상적으로 받습니다. 실제 MySQL에 같은 신청 건으로 취소 요청 10개를 동시에 보내 정확히 1개만 200, 나머지 9개는 409로
+막히고 `enrolledCount`가 정원을 넘지 않는 것을 확인했습니다(`EnrollmentConcurrencyTest#같은_신청건에_동시_취소요청이_와도_좌석은_한번만_비워진다`).
 
 ### 아키텍처 스타일 — DDD-lite
 
