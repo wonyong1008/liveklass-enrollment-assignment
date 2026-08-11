@@ -208,4 +208,58 @@ class EnrollmentConcurrencyTest {
                 .as("대기자 전원이 승급됐다면 정원만큼 좌석이 다시 채워져 있어야 한다")
                 .isEqualTo(capacity);
     }
+
+    /**
+     * 같은 신청 건(enrollmentId)에 취소 요청이 동시에 여러 번 들어와도 좌석은 딱 한 번만
+     * 비워져야 한다. getOwnedEnrollmentOrThrow가 Enrollment를 락 없이 조회하면, 동시 요청이
+     * 서로의 커밋을 못 보고 둘 다 "좌석을 갖고 있었다"고 판단해 대기자를 중복 승급시켜
+     * 정원을 초과할 수 있었다(수정 전 실제로 재현됨).
+     */
+    @Test
+    void 같은_신청건에_동시_취소요청이_와도_좌석은_한번만_비워진다() throws InterruptedException {
+        int requestCount = 10;
+
+        Course course = new Course("creator-1", "중복취소 테스트 강의", "설명",
+                BigDecimal.valueOf(10_000), 1, LocalDate.now(), LocalDate.now().plusDays(30));
+        course.open();
+        Long courseId = courseRepository.save(course).getId();
+
+        Long holderEnrollmentId = enrollmentService.apply("holder", courseId).id();
+        enrollmentService.joinWaitlist("waiter", courseId);
+
+        ExecutorService executor = Executors.newFixedThreadPool(requestCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(requestCount);
+        AtomicInteger successCount = new AtomicInteger();
+        List<Throwable> unexpectedFailures = Collections.synchronizedList(new java.util.ArrayList<>());
+
+        for (int i = 0; i < requestCount; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    enrollmentService.cancel(holderEnrollmentId, "holder");
+                    successCount.incrementAndGet();
+                } catch (com.liveklass.enrollment.common.exception.InvalidEnrollmentStateException e) {
+                    // 이미 다른 스레드가 먼저 취소 처리한 경우 정상적으로 발생
+                } catch (Throwable t) {
+                    unexpectedFailures.add(t);
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        boolean completed = doneLatch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        assertThat(unexpectedFailures).isEmpty();
+        assertThat(successCount.get()).as("취소 자체는 딱 한 번만 성공해야 한다").isEqualTo(1);
+
+        long seatHoldingCount = enrollmentRepository.countByCourseIdAndStatusIn(courseId, EnrollmentStatus.SEAT_HOLDING);
+        assertThat(seatHoldingCount)
+                .as("동시 취소 요청이 여러 번 와도 대기자는 한 명만 승급되어 정원을 넘으면 안 된다")
+                .isEqualTo(1);
+    }
 }
