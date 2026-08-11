@@ -30,6 +30,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -80,7 +82,7 @@ class EnrollmentServiceTest {
         Course course = openCourse(10);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
         when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(Optional.of(new Enrollment(1L, "user-1", java.time.LocalDateTime.now())));
+                .thenReturn(List.of(new Enrollment(1L, "user-1", LocalDateTime.now())));
 
         assertThatThrownBy(() -> enrollmentService.apply("user-1", 1L))
                 .isInstanceOf(DuplicateEnrollmentException.class);
@@ -91,7 +93,7 @@ class EnrollmentServiceTest {
         Course course = openCourse(2);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
         lenient().when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(Optional.empty());
+                .thenReturn(List.of());
         when(enrollmentRepository.countByCourseIdAndStatusIn(any(), any())).thenReturn(2L);
 
         assertThatThrownBy(() -> enrollmentService.apply("user-1", 1L))
@@ -103,7 +105,7 @@ class EnrollmentServiceTest {
         Course course = openCourse(2);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
         lenient().when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(Optional.empty());
+                .thenReturn(List.of());
         when(enrollmentRepository.countByCourseIdAndStatusIn(any(), any())).thenReturn(1L);
         when(enrollmentRepository.save(any(Enrollment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -115,8 +117,8 @@ class EnrollmentServiceTest {
 
     @Test
     void 본인_신청건이_아니면_확정할_수_없다() {
-        Enrollment enrollment = new Enrollment(1L, "user-1", java.time.LocalDateTime.now());
-        when(enrollmentRepository.findById(10L)).thenReturn(Optional.of(enrollment));
+        Enrollment enrollment = new Enrollment(1L, "user-1", LocalDateTime.now());
+        when(enrollmentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(enrollment));
 
         assertThatThrownBy(() -> enrollmentService.confirm(10L, "다른-사람"))
                 .isInstanceOf(ForbiddenException.class);
@@ -124,8 +126,8 @@ class EnrollmentServiceTest {
 
     @Test
     void 본인_신청건은_결제확정할_수_있다() {
-        Enrollment enrollment = new Enrollment(1L, "user-1", java.time.LocalDateTime.now());
-        when(enrollmentRepository.findById(10L)).thenReturn(Optional.of(enrollment));
+        Enrollment enrollment = new Enrollment(1L, "user-1", LocalDateTime.now());
+        when(enrollmentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(enrollment));
 
         var response = enrollmentService.confirm(10L, "user-1");
 
@@ -135,7 +137,7 @@ class EnrollmentServiceTest {
     @Test
     void 본인_신청건이_아니면_취소할_수_없다() {
         Enrollment enrollment = new Enrollment(1L, "user-1", LocalDateTime.now());
-        when(enrollmentRepository.findById(10L)).thenReturn(Optional.of(enrollment));
+        when(enrollmentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(enrollment));
 
         assertThatThrownBy(() -> enrollmentService.cancel(10L, "다른-사람"))
                 .isInstanceOf(ForbiddenException.class);
@@ -144,7 +146,7 @@ class EnrollmentServiceTest {
     @Test
     void 결제_전_신청건은_바로_취소할_수_있다() {
         Enrollment enrollment = new Enrollment(1L, "user-1", LocalDateTime.now(clock));
-        when(enrollmentRepository.findById(10L)).thenReturn(Optional.of(enrollment));
+        when(enrollmentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(enrollment));
         lenient().when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(openCourse(2)));
 
         var response = enrollmentService.cancel(10L, "user-1");
@@ -156,7 +158,7 @@ class EnrollmentServiceTest {
     void 결제확정_후_취소가능_기간_이내면_취소할_수_있다() {
         Enrollment enrollment = new Enrollment(1L, "user-1", LocalDateTime.now(clock).minusDays(10));
         enrollment.confirm(LocalDateTime.now(clock).minusDays(3));
-        when(enrollmentRepository.findById(10L)).thenReturn(Optional.of(enrollment));
+        when(enrollmentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(enrollment));
         lenient().when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(openCourse(2)));
 
         var response = enrollmentService.cancel(10L, "user-1");
@@ -167,7 +169,7 @@ class EnrollmentServiceTest {
     @Test
     void 좌석을_보유한_신청을_취소하면_대기_1순위가_자동승급된다() {
         Enrollment holder = new Enrollment(1L, "user-1", LocalDateTime.now(clock));
-        when(enrollmentRepository.findById(10L)).thenReturn(Optional.of(holder));
+        when(enrollmentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(holder));
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(openCourse(1)));
 
         Enrollment waitlisted = Enrollment.waitlisted(1L, "user-2", LocalDateTime.now(clock).minusMinutes(5));
@@ -182,7 +184,7 @@ class EnrollmentServiceTest {
     @Test
     void 대기자가_없으면_취소해도_아무도_승급되지_않는다() {
         Enrollment holder = new Enrollment(1L, "user-1", LocalDateTime.now(clock));
-        when(enrollmentRepository.findById(10L)).thenReturn(Optional.of(holder));
+        when(enrollmentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(holder));
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(openCourse(1)));
         when(enrollmentRepository.findFirstByCourseIdAndStatusOrderByAppliedAtAsc(1L, EnrollmentStatus.WAITLISTED))
                 .thenReturn(Optional.empty());
@@ -195,19 +197,19 @@ class EnrollmentServiceTest {
     @Test
     void 대기신청을_취소하면_승급로직이_실행되지_않는다() {
         Enrollment waitlisted = Enrollment.waitlisted(1L, "user-1", LocalDateTime.now(clock));
-        when(enrollmentRepository.findById(10L)).thenReturn(Optional.of(waitlisted));
+        when(enrollmentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(waitlisted));
 
         var response = enrollmentService.cancel(10L, "user-1");
 
         assertThat(response.status()).isEqualTo(EnrollmentStatus.CANCELLED);
-        org.mockito.Mockito.verify(courseRepository, org.mockito.Mockito.never()).findByIdForUpdate(any());
+        verify(courseRepository, never()).findByIdForUpdate(any());
     }
 
     @Test
     void 결제확정_후_취소가능_기간이_지나면_취소할_수_없다() {
         Enrollment enrollment = new Enrollment(1L, "user-1", LocalDateTime.now(clock).minusDays(10));
         enrollment.confirm(LocalDateTime.now(clock).minusDays(8));
-        when(enrollmentRepository.findById(10L)).thenReturn(Optional.of(enrollment));
+        when(enrollmentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(enrollment));
 
         assertThatThrownBy(() -> enrollmentService.cancel(10L, "user-1"))
                 .isInstanceOf(CancellationPeriodExpiredException.class);
@@ -251,7 +253,7 @@ class EnrollmentServiceTest {
         Course course = openCourse(2);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
         lenient().when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(Optional.empty());
+                .thenReturn(List.of());
         when(enrollmentRepository.countByCourseIdAndStatusIn(any(), any())).thenReturn(1L);
 
         assertThatThrownBy(() -> enrollmentService.joinWaitlist("user-1", 1L))
@@ -263,7 +265,7 @@ class EnrollmentServiceTest {
         Course course = openCourse(2);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
         lenient().when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(Optional.empty());
+                .thenReturn(List.of());
         when(enrollmentRepository.countByCourseIdAndStatusIn(any(), any())).thenReturn(2L);
         when(enrollmentRepository.save(any(Enrollment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -287,9 +289,20 @@ class EnrollmentServiceTest {
         Course course = openCourse(1);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
         when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(Optional.of(Enrollment.waitlisted(1L, "user-1", LocalDateTime.now())));
+                .thenReturn(List.of(Enrollment.waitlisted(1L, "user-1", LocalDateTime.now())));
 
         assertThatThrownBy(() -> enrollmentService.joinWaitlist("user-1", 1L))
                 .isInstanceOf(DuplicateEnrollmentException.class);
+    }
+
+    @Test
+    void 이미_취소된_신청을_다시_취소하면_승급이_중복실행되지_않는다() {
+        Enrollment enrollment = new Enrollment(1L, "user-1", LocalDateTime.now(clock));
+        enrollment.cancel(LocalDateTime.now(clock), java.time.Duration.ofDays(7));
+        when(enrollmentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(enrollment));
+
+        assertThatThrownBy(() -> enrollmentService.cancel(10L, "user-1"))
+                .isInstanceOf(com.liveklass.enrollment.common.exception.InvalidEnrollmentStateException.class);
+        verify(courseRepository, never()).findByIdForUpdate(any());
     }
 }
