@@ -23,13 +23,14 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 
 /**
- * 이 서비스는 정원/대기열 정합성을 MySQL의 스냅샷 격리가 아니라 {@code Course} row에 대한
- * 명시적 비관적 락으로 직접 제어한다. MySQL InnoDB의 기본 격리수준인 REPEATABLE READ에서는
- * 트랜잭션의 "첫 읽기"가 스냅샷을 고정하고, 락이 걸리지 않은 일반 SELECT는 그 스냅샷만 본다
- * (락을 건 읽기만 예외적으로 항상 최신 커밋을 본다). {@code cancel()}처럼 락 없는 조회가 먼저
- * 일어나고 그 뒤에 락을 거는 순서로 로직이 짜여 있으면, 락 이후의 일반 SELECT가 락 획득 이전의
- * 오래된 스냅샷을 보게 되어 방금 커밋된 변경(예: 다른 트랜잭션이 승급시킨 대기자)을 놓칠 수 있다.
- * 그래서 쓰기 트랜잭션은 READ_COMMITTED로 명시해 매 쿼리가 항상 최신 커밋을 보도록 통일한다.
+ * 이 서비스는 정원/대기열 정합성을 MySQL의 스냅샷 격리가 아니라 명시적 비관적 락으로 직접
+ * 제어한다. MySQL InnoDB의 기본 격리수준인 REPEATABLE READ에서는 트랜잭션의 "첫 읽기"가
+ * 스냅샷을 고정하고, 락이 걸리지 않은 일반 SELECT는 그 스냅샷만 본다(락을 건 읽기만 예외적으로
+ * 항상 최신 커밋을 본다). 락 없는 조회가 먼저 일어나고 그 뒤에 락을 거는 순서로 로직이 짜여
+ * 있으면, 락 이후의 일반 SELECT가 락 획득 이전의 오래된 스냅샷을 보게 되어 방금 커밋된 변경을
+ * 놓칠 수 있다. 그래서 쓰기 트랜잭션은 READ_COMMITTED로 명시해 매 쿼리가 항상 최신 커밋을
+ * 보도록 통일하고, {@code Course}뿐 아니라 {@code Enrollment} 자체도 변경 시에는 비관적
+ * 락으로 조회해 같은 신청 건에 대한 동시 요청(중복 취소/중복 확정)을 직렬화한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -76,7 +77,7 @@ public class EnrollmentService {
         return EnrollmentResponse.from(enrollmentRepository.save(enrollment));
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public EnrollmentResponse confirm(Long enrollmentId, String userId) {
         Enrollment enrollment = getOwnedEnrollmentOrThrow(enrollmentId, userId);
         enrollment.confirm(LocalDateTime.now(clock));
@@ -116,8 +117,7 @@ public class EnrollmentService {
      * 호출부에서 갈린다.
      */
     private CourseSeatSnapshot lockCourseForEnrollment(Long courseId, String userId, String action) {
-        Course course = courseRepository.findByIdForUpdate(courseId)
-                .orElseThrow(() -> new CourseNotFoundException(courseId));
+        Course course = lockCourse(courseId);
 
         if (!course.isOpenForEnrollment()) {
             throw new InvalidCourseStateException("모집 중인 강의만 " + action + "할 수 있습니다. status=" + course.getStatus());
@@ -138,22 +138,30 @@ public class EnrollmentService {
      * 승급 처리 중 다른 신청/취소/대기 요청과 경합하지 않는다.
      */
     private void promoteNextWaitlisted(Long courseId) {
-        courseRepository.findByIdForUpdate(courseId)
-                .orElseThrow(() -> new CourseNotFoundException(courseId));
+        lockCourse(courseId);
 
         enrollmentRepository.findFirstByCourseIdAndStatusOrderByAppliedAtAsc(courseId, EnrollmentStatus.WAITLISTED)
                 .ifPresent(Enrollment::promote);
     }
 
-    private void requireNoActiveEnrollment(Long courseId, String userId) {
-        enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(courseId, userId, EnrollmentStatus.ACTIVE)
-                .ifPresent(e -> {
-                    throw new DuplicateEnrollmentException(courseId, userId);
-                });
+    private Course lockCourse(Long courseId) {
+        return courseRepository.findByIdForUpdate(courseId)
+                .orElseThrow(() -> new CourseNotFoundException(courseId));
     }
 
+    private void requireNoActiveEnrollment(Long courseId, String userId) {
+        if (!enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(courseId, userId, EnrollmentStatus.ACTIVE).isEmpty()) {
+            throw new DuplicateEnrollmentException(courseId, userId);
+        }
+    }
+
+    /**
+     * confirm/cancel 대상 신청 건을 비관적 락으로 조회한다. 락 없는 findById를 쓰면 같은
+     * 신청 건에 대한 동시 요청(중복 취소/중복 확정)이 서로의 커밋을 못 보고 각자 "처리 전"
+     * 상태로 판단해, 대기열 승급 중복 또는 lost update로 이어질 수 있다.
+     */
     private Enrollment getOwnedEnrollmentOrThrow(Long enrollmentId, String userId) {
-        Enrollment enrollment = enrollmentRepository.findById(enrollmentId)
+        Enrollment enrollment = enrollmentRepository.findByIdForUpdate(enrollmentId)
                 .orElseThrow(() -> new EnrollmentNotFoundException(enrollmentId));
         if (!enrollment.isOwnedBy(userId)) {
             throw new ForbiddenException("본인의 수강 신청만 처리할 수 있습니다.");
