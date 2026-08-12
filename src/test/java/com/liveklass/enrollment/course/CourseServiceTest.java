@@ -86,7 +86,7 @@ class CourseServiceTest {
     @Test
     void 개설자가_아니면_강의를_열_수_없다() {
         Course course = sampleCourse("creator-1", 20);
-        when(courseRepository.findById(1L)).thenReturn(Optional.of(course));
+        when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
 
         assertThatThrownBy(() -> courseService.open(1L, "다른-사람"))
                 .isInstanceOf(ForbiddenException.class);
@@ -95,12 +95,12 @@ class CourseServiceTest {
     @Test
     void 개설자는_강의를_열_수_있다() {
         Course course = sampleCourse("creator-1", 20);
-        when(courseRepository.findById(1L)).thenReturn(Optional.of(course));
+        when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
 
         var response = courseService.open(1L, "creator-1");
 
         assertThat(response.status()).isEqualTo(CourseStatus.OPEN);
-        verify(courseRepository).findById(1L);
+        verify(courseRepository).findByIdForUpdate(1L);
     }
 
     @Test
@@ -132,7 +132,7 @@ class CourseServiceTest {
     void 개설자가_아니면_강의를_닫을_수_없다() {
         Course course = sampleCourse("creator-1", 20);
         course.open();
-        when(courseRepository.findById(1L)).thenReturn(Optional.of(course));
+        when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
 
         assertThatThrownBy(() -> courseService.close(1L, "다른-사람"))
                 .isInstanceOf(ForbiddenException.class);
@@ -142,7 +142,7 @@ class CourseServiceTest {
     void 개설자는_강의를_닫을_수_있다() {
         Course course = sampleCourse("creator-1", 20);
         course.open();
-        when(courseRepository.findById(1L)).thenReturn(Optional.of(course));
+        when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
 
         var response = courseService.close(1L, "creator-1");
 
