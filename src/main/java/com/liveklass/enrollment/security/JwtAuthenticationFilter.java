@@ -26,10 +26,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String token = resolveToken(request);
-        if (token != null && jwtTokenProvider.isValid(token)) {
-            String userId = jwtTokenProvider.getUserId(token);
-            var authentication = new UsernamePasswordAuthenticationToken(userId, null, List.of());
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+        if (token != null) {
+            jwtTokenProvider.resolveUserId(token).ifPresent(userId -> {
+                var authentication = new UsernamePasswordAuthenticationToken(userId, null, List.of());
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            });
         }
         filterChain.doFilter(request, response);
     }
