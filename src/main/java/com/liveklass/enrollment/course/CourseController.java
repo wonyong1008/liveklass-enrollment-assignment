@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,7 +41,7 @@ public class CourseController {
     @Operation(summary = "강의 목록 조회", description = "상태(status)로 필터링할 수 있다. 미지정 시 전체 조회.")
     @GetMapping
     public PageResponse<CourseResponse> list(@Parameter(description = "DRAFT/OPEN/CLOSED") @RequestParam(required = false) CourseStatus status,
-                                              Pageable pageable) {
+                                              @PageableDefault(sort = "id") Pageable pageable) {
         return PageResponse.from(courseService.list(status, pageable));
     }
 

@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -54,7 +55,8 @@ public class EnrollmentController {
 
     @Operation(summary = "내 수강 신청 목록 조회")
     @GetMapping("/api/enrollments/me")
-    public PageResponse<EnrollmentResponse> myEnrollments(Authentication authentication, Pageable pageable) {
+    public PageResponse<EnrollmentResponse> myEnrollments(Authentication authentication,
+                                                            @PageableDefault(sort = "id") Pageable pageable) {
         return PageResponse.from(enrollmentService.myEnrollments(authentication.getName(), pageable));
     }
 
@@ -62,7 +64,7 @@ public class EnrollmentController {
     @GetMapping("/api/courses/{courseId}/enrollments")
     public PageResponse<EnrollmentResponse> courseEnrollments(@PathVariable Long courseId,
                                                                 Authentication authentication,
-                                                                Pageable pageable) {
+                                                                @PageableDefault(sort = "id") Pageable pageable) {
         return PageResponse.from(enrollmentService.courseEnrollments(courseId, authentication.getName(), pageable));
     }
 }
