@@ -262,4 +262,60 @@ class EnrollmentConcurrencyTest {
                 .as("동시 취소 요청이 여러 번 와도 대기자는 한 명만 승급되어 정원을 넘으면 안 된다")
                 .isEqualTo(1);
     }
+
+    /**
+     * 좌석 보유자가 취소하면서 대기 1순위를 승급시키는 시점에, 하필 그 대기자 본인도 자기
+     * 대기 신청을 취소하면 경합이 생긴다. findFirstByCourseIdAndStatusOrderByAppliedAtAsc에
+     * 락이 없으면, 본인이 이미 취소(CANCELLED)한 신청이 뒤늦게 도착한 승급 처리에 의해
+     * PENDING으로 되살아날 수 있었다. 어느 스레드가 먼저 끝나든 결과는 "대기자는 취소된
+     * 상태로 남는다"로 항상 같아야 한다.
+     */
+    @Test
+    void 대기자가_승급과_동시에_스스로_취소해도_취소상태로_남는다() throws InterruptedException {
+        Course course = new Course("creator-1", "대기자 자기취소 경합 테스트", "설명",
+                BigDecimal.valueOf(10_000), 1, LocalDate.now(), LocalDate.now().plusDays(30));
+        course.open();
+        Long courseId = courseRepository.save(course).getId();
+
+        Long holderEnrollmentId = enrollmentService.apply("holder", courseId).id();
+        Long waiterEnrollmentId = enrollmentService.joinWaitlist("waiter", courseId).id();
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(2);
+        List<Throwable> unexpectedFailures = Collections.synchronizedList(new java.util.ArrayList<>());
+
+        executor.submit(() -> {
+            try {
+                startLatch.await();
+                enrollmentService.cancel(holderEnrollmentId, "holder");
+            } catch (Throwable t) {
+                unexpectedFailures.add(t);
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+        executor.submit(() -> {
+            try {
+                startLatch.await();
+                enrollmentService.cancel(waiterEnrollmentId, "waiter");
+            } catch (Throwable t) {
+                unexpectedFailures.add(t);
+            } finally {
+                doneLatch.countDown();
+            }
+        });
+
+        startLatch.countDown();
+        boolean completed = doneLatch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        assertThat(unexpectedFailures).isEmpty();
+
+        var waiterEnrollment = enrollmentRepository.findById(waiterEnrollmentId).orElseThrow();
+        assertThat(waiterEnrollment.getStatus())
+                .as("대기자 본인이 취소를 요청했다면 승급 처리와 경합해도 최종 상태는 취소여야 한다")
+                .isEqualTo(EnrollmentStatus.CANCELLED);
+    }
 }
