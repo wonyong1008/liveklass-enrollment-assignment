@@ -186,7 +186,7 @@ erDiagram
         varchar creator_id
         varchar title
         text description
-        decimal price
+        bigint price
         int capacity
         date start_date
         date end_date
@@ -293,7 +293,7 @@ Course 락으로 직렬화되어 있어도, 애초에 "좌석이 비었다"는 �
 정상적으로 받습니다. 실제 MySQL에 같은 신청 건으로 취소 요청 10개를 동시에 보내 정확히 1개만 200, 나머지 9개는 409로
 막히고 `enrolledCount`가 정원을 넘지 않는 것을 확인했습니다(`EnrollmentConcurrencyTest#같은_신청건에_동시_취소요청이_와도_좌석은_한번만_비워진다`).
 
-같은 계열의 경합이 대기열 승급 조회(`findFirstByCourseIdAndStatusOrderByAppliedAtAsc`)에도 있었습니다. 좌석 보유자가
+같은 계열의 경합이 대기열 승급 조회(`findFirstByCourseIdAndStatusOrderByAppliedAtAscIdAsc`)에도 있었습니다. 좌석 보유자가
 취소해 대기 1순위를 승급시키는 시점에, 하필 그 대기자 본인도 자기 대기 신청을 취소하면, 락 없는 조회가 이미
 `CANCELLED`로 커밋된 신청을 뒤늦게 `PENDING`으로 되살릴 수 있었습니다(`Enrollment`에 `@Version`이 없어 승급 쪽의
 UPDATE가 무조건 실행되기 때문). 이 조회에도 `@Lock(PESSIMISTIC_WRITE)`를 걸어, 대기자 본인이 먼저 취소를 커밋하면
@@ -319,7 +319,7 @@ Spring 6의 `ProblemDetail`(RFC 7807)을 사용해 일관된 에러 응답 포�
 모든 핸들러가 같은 방식으로 `ProblemDetail`을 만들도록 통일했습니다.
 
 DTO의 `@Size`/`@Digits`로 필드별 길이·범위를 검증해왔지만(`title`/`description`/`userId`/`price`), 이 패턴을 새
-필드에 적용하는 걸 실제로 세 번이나 놓친 적이 있어(`.notes/버그수정기록.md` 참고), `DataIntegrityViolationException`
+필드에 적용하는 걸 실제로 세 번이나 놓친 적이 있어, `DataIntegrityViolationException`
 안전망 핸들러를 추가했습니다. 개별 필드 검증은 "무엇이 왜 잘못됐는지" 구체적인 메시지를 줄 수 있어 계속 유지하되,
 혹시 놓친 필드가 있어도 500이 아니라 400으로 떨어지도록 마지막 방어선을 깔아둔 것입니다.
 
@@ -364,10 +364,11 @@ join도 발생하지 않습니다. QueryDSL은 여러 optional 조건을 조합�
 터져서 400이 아니라 500이 났습니다. `@Size(max=...)`를 DB 컬럼 길이에 맞춰 추가했습니다. `userId`는 토큰 발급
 시점(`POST /api/auth/token`)에 한 번만 검증하면, 이후 이 토큰에서 파생되는 모든 요청(강의 개설의 `creatorId`,
 수강신청의 `userId`)에 전부 적용되므로 한 곳만 고치면 됩니다. 같은 이유로 `description`(TEXT 컬럼, 최대 65,535바이트)에도
-5000자 상한을 추가해, title/userId를 고칠 때 같이 놓쳤던 같은 종류의 구멍을 막았습니다. 세 번째로 놓친 곳은 `price`
-(`DECIMAL(12,2)`)였습니다 — 정수부 10자리를 넘는 값을 보내면 똑같이 500이 났고, `@Digits(integer=10, fraction=2)`로
-고쳤습니다. 같은 버그 패턴이 세 번 반복된 뒤에야 "필드별 검증 대신 DB 제약 위반 자체를 안전망으로 잡자"는 결론에
-이르렀습니다(바로 위 "에러 응답 포맷" 절의 `DataIntegrityViolationException` 핸들러).
+5000자 상한을 추가해, title/userId를 고칠 때 같이 놓쳤던 같은 종류의 구멍을 막았습니다. 세 번째로 놓친 곳은 `price`였는데,
+당시엔 `DECIMAL(12,2)` 컬럼 자릿수에 맞춘 `@Digits(integer=10, fraction=2)`로 고쳤습니다(아래 "price를 정수로 모델링한
+이유" 절에서 설명하듯, 이후 `price` 자체를 정수(원 단위)로 바꾸면서 이 검증은 필요 없어졌습니다). 같은 버그 패턴이 세 번
+반복된 뒤에야 "필드별 검증 대신 DB 제약 위반 자체를 안전망으로 잡자"는 결론에 이르렀습니다(바로 위 "에러 응답 포맷" 절의
+`DataIntegrityViolationException` 핸들러).
 
 ### 목록 API 기본 정렬
 
@@ -388,8 +389,53 @@ InnoDB의 `innodb_lock_wait_timeout`을 넘기거나 데드락이 나면 `Pessim
 `open()`/`close()`만 락 없는 `findById`로 강의를 조회하고 있었습니다. 지금은 상태 전이가 멱등적(중복 호출해도
 최종 상태가 같음)이라 데이터 손상으로 이어지진 않지만, 이 코드베이스에서 "강의/신청 상태를 읽고 바꾸는" 경로는
 전부 락을 쓰는 게 규칙인데 여기만 벗어나 있었습니다. 이미 세 번 반복된 REPEATABLE READ 스냅샷 버그
-(아래 "Enrollment 자체도 비관적 락으로 조회하는 이유" 참고)가 향후 이 메서드에 관련 로직이 추가될 때 재발할
+(위 "Enrollment 자체도 비관적 락으로 조회하는 이유" 참고)가 향후 이 메서드에 관련 로직이 추가될 때 재발할
 함정이라 판단해 `findByIdForUpdate` + `READ_COMMITTED`로 맞췄습니다.
+
+### 대기열 승급 정렬 — appliedAt만으로는 부족한 이유
+
+승급 대상을 고를 때 `appliedAt` 오름차순 하나로만 정렬하고 있었습니다. `applied_at` 컬럼은 MySQL `DATETIME`이라
+초 단위까지만 저장되는데(마이크로초 정밀도 없음), 같은 초에 여러 명이 대기 등록하면 값이 정확히 같아집니다. 이때
+정렬 기준이 하나뿐이면 동률 행을 어떤 순서로 반환할지는 SQL 표준상 정의돼 있지 않아 FIFO(먼저 등록한 사람 우선)가
+깨질 수 있습니다. auto-increment `id`는 비관적 락으로 직렬화된 등록 순서를 정확히 반영하므로 세컨더리 정렬키로
+추가해 동률을 깼습니다. H2로는 이 타이밍을 재현하지 못했지만(우연히 삽입 순서를 그대로 반환), 이 프로젝트에서
+반복돼 온 "H2가 못 잡는 MySQL 고유 이슈" 패턴과 같은 종류라 판단해 방어적으로 수정하고 회귀 테스트를 남겼습니다.
+
+### DRAFT(미공개) 강의 접근 제어
+
+강의 목록/상세조회 API가 DRAFT 상태까지 아무나 조회할 수 있었습니다. DRAFT는 아직 모집을 시작하지 않은,
+개설자만 봐야 하는 초안 상태라 이 필드가 새거나 URL을 추측당하면 정보 노출로 이어집니다. 존재 자체를 숨기기
+위해 403이 아니라 404로 응답하도록 하고, 목록 조회는 상태 미지정 시 공개 상태(OPEN/CLOSED)만 보이게, `status=DRAFT`
+필터는 본인이 개설한 것만 보이게 리포지토리 쿼리 자체를 갈랐습니다.
+
+### Course 조회/락 중복을 리포지토리 default 메서드로 통합
+
+"강의를 조회하고 없으면 404"를 `CourseService`와 `EnrollmentService`가 각자 반복해서 짜고 있었습니다(락 유무만
+다를 뿐 로직은 동일). `CourseRepository`에 `getByIdOrThrow`/`getForUpdateOrThrow` default 메서드를 추가해 두 곳의
+중복을 없앴습니다. 리팩터링하며 얻은 부수 교훈 하나: Mockito 목(mock)은 인터페이스의 default 메서드도 스텁 없이
+호출하면 실제 본문을 실행하지 않고 null을 반환합니다. 단위 테스트가 갑자기 `NullPointerException`으로 깨져서
+원인을 보니 이 부분이었고, `@Mock(answer = Answers.CALLS_REAL_METHODS)`로 해결했습니다.
+
+### price를 정수(원)로 모델링한 이유
+
+처음엔 `price`를 `BigDecimal`/`DECIMAL(12,2)`로 만들었습니다(금액은 부동소수점 오차를 피하려면
+`BigDecimal`을 써야 한다는 일반적인 패턴을 그대로 따른 것). 그런데 강의를 막 생성한 직후 응답
+(`price:10000`)과 `open()`/`close()`처럼 DB에서 다시 조회한 뒤의 응답(`price:10000.00`)에서
+같은 필드가 다르게 표현되는 걸 실제 MySQL 검증 중 발견했습니다 — DB 컬럼이 scale=2로 고정되어
+있어 MySQL에서 읽어온 값은 항상 소수 둘째 자리까지 붙지만, 막 생성된(아직 저장 전) 엔티티는
+요청 JSON이 준 scale을 그대로 갖고 있었기 때문입니다.
+
+이 문제를 파고들다가 더 근본적인 질문에 이르렀습니다: **원화(KRW)는 애초에 소수 단위(전)를 실무에서
+쓰지 않는데, 왜 소수부가 있는 타입을 골랐는가?** `DECIMAL(12,2)`는 달러(센트 단위) 금액을 다루는
+일반적인 튜토리얼 패턴이지, 이 서비스(원화 기준 강의료)의 실제 요구사항과는 맞지 않았습니다. scale
+불일치를 정규화하는 대신 `price`를 `Long`(정수, 원 단위)으로 바꿔 문제 자체를 없앴습니다
+(DB 컬럼도 `DECIMAL(12,2)` → `BIGINT`).
+
+타입을 바꾸며 하나 더 발견했습니다: Jackson은 기본적으로 `"price":10000.9` 같은 소수 JSON 값이
+정수 타입 필드로 들어오면 예외 없이 소수부를 조용히 버립니다(실제 MySQL로 확인: 응답이 `10000`으로
+잘림). 원 단위 정수라는 도메인 제약을 클라이언트가 몰랐거나 실수로 소수를 보내면 검증 없이 값만
+깎여서 저장될 뻔한 셈입니다. `JacksonConfig`에서 정수 타입 전체(price뿐 아니라 capacity 등)에
+대해 소수 입력을 명시적으로 거부(400)하도록 `CoercionConfig`를 설정해 막았습니다.
 
 ### 고려했지만 적용하지 않은 것들
 
@@ -412,8 +458,11 @@ InnoDB의 `innodb_lock_wait_timeout`을 넘기거나 데드락이 나면 `Pessim
 
 - `CourseTest`, `EnrollmentTest`: 엔티티 단위(상태 전이, 취소 가능 기간 경계값)
 - `CourseServiceTest`, `EnrollmentServiceTest`: 서비스 단위(Mockito), 예외 케이스 포함
+- `EnrollmentRepositoryTest`: 대기열 승급 정렬이 동시 등록 동률(tie) 상황에서도 FIFO를 지키는지 검증
 - `EnrollmentConcurrencyTest`: **정원 5명 강의에 30개 동시 요청 → 정확히 5건만 성공**하는지 검증하는 동시성 테스트
-- `EnrollmentFlowIntegrationTest`: 로그인부터 강의 개설~취소까지 MockMvc로 실제 API를 호출하는 통합 테스트
+- `EnrollmentFlowIntegrationTest`: 로그인부터 강의 개설~취소, DRAFT 강의 접근 제어까지 MockMvc로 실제 API를 호출하는 통합 테스트
+- `WaitlistFlowIntegrationTest`: 대기열 등록→자동 승급, 마감된 강의는 취소해도 승급되지 않는지 MockMvc로 검증
+- `GlobalExceptionHandlerTest`: 타입 불일치/JSON 파싱 실패/길이·범위 검증/DB 제약 안전망/락 경합 등 예외 처리 전반
 
 ## 미구현 / 제약사항
 
@@ -442,8 +491,8 @@ Claude Code(AI 코딩 어시스턴트)를 페어 프로그래밍 파트너로 �
 **AI의 결과물을 검증한 방식**
 - N+1 쿼리 발생 여부, QueryDSL 도입 필요성, 페이지네이션이 실제로 `LIMIT`/`OFFSET`으로 나가는지(Hibernate SQL 로그로
   직접 확인시킴), 대기열 승급이 폴링인지 이벤트 기반인지 등 **구현 원리를 계속 캐물어 이해하고 넘어감**
-- 코드리뷰를 별도로 두 차례 요청해 개선점을 찾게 하고, 우선순위를 직접 정해서 순서대로 반영(Swagger 문서화 →
-  테스트 보강 → 대기열 → 응답 정리)
+- 코드리뷰를 여러 차례 반복 요청해 개선점을 찾게 하고, 매번 발견한 문제를 직접 읽고 검증한 뒤 우선순위를 정해서
+  반영(동시성/락 → 예외처리 공백 → 입력검증 → 설계 일관성 순으로 라운드를 거듭하며 심화)
 - 코드리뷰에서 나온 동시성 버그(같은 신청 건에 동시 취소 요청이 오면 대기자가 중복 승급되어 정원을 초과하는
   문제)는 **실제 MySQL(docker-compose)로 수정 전 재현 → 수정 → 재검증까지 직접 확인**하도록 지시했고, 결과를
   README "설계 결정과 이유" 섹션에 남겼습니다.
