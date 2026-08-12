@@ -52,6 +52,37 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.status").value(400));
     }
 
+    @Test
+    void userId가_DB_컬럼_길이를_넘으면_토큰발급_단계에서_400으로_거부된다() throws Exception {
+        String tooLongUserId = "u".repeat(65);
+
+        mockMvc.perform(post("/api/auth/token")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(Map.of("userId", tooLongUserId))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void 강의_제목이_DB_컬럼_길이를_넘으면_500_대신_400으로_응답한다() throws Exception {
+        String token = issueToken("long-title-user");
+        String tooLongTitle = "제".repeat(201);
+
+        mockMvc.perform(post("/api/courses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "title", tooLongTitle,
+                                "description", "d",
+                                "price", 10000,
+                                "capacity", 10,
+                                "startDate", "2026-09-01",
+                                "endDate", "2026-10-01"
+                        ))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
     private String issueToken(String userId) throws Exception {
         String response = mockMvc.perform(post("/api/auth/token")
                         .contentType("application/json")
