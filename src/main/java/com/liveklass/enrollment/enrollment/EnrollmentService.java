@@ -10,7 +10,6 @@ import com.liveklass.enrollment.common.exception.WaitlistNotAllowedException;
 import com.liveklass.enrollment.course.Course;
 import com.liveklass.enrollment.course.CourseRepository;
 import com.liveklass.enrollment.enrollment.dto.EnrollmentResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -33,16 +32,23 @@ import java.time.LocalDateTime;
  * 락으로 조회해 같은 신청 건에 대한 동시 요청(중복 취소/중복 확정)을 직렬화한다.
  */
 @Service
-@RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class EnrollmentService {
 
     private final EnrollmentRepository enrollmentRepository;
     private final CourseRepository courseRepository;
     private final Clock clock;
+    private final long cancellableDays;
 
-    @Value("${enrollment.cancellable-days:7}")
-    private long cancellableDays;
+    public EnrollmentService(EnrollmentRepository enrollmentRepository,
+                              CourseRepository courseRepository,
+                              Clock clock,
+                              @Value("${enrollment.cancellable-days:7}") long cancellableDays) {
+        this.enrollmentRepository = enrollmentRepository;
+        this.courseRepository = courseRepository;
+        this.clock = clock;
+        this.cancellableDays = cancellableDays;
+    }
 
     /**
      * 강의 row에 비관적 락을 건 채로 "현재 신청 인원 카운트 -> 정원 비교 -> 신청 생성"을
