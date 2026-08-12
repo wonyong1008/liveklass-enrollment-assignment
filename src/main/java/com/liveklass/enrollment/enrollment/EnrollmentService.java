@@ -1,7 +1,6 @@
 package com.liveklass.enrollment.enrollment;
 
 import com.liveklass.enrollment.common.exception.CapacityExceededException;
-import com.liveklass.enrollment.common.exception.CourseNotFoundException;
 import com.liveklass.enrollment.common.exception.DuplicateEnrollmentException;
 import com.liveklass.enrollment.common.exception.EnrollmentNotFoundException;
 import com.liveklass.enrollment.common.exception.ForbiddenException;
@@ -109,8 +108,7 @@ public class EnrollmentService {
 
     /** 강의별 수강생 목록 조회 (크리에이터 전용) */
     public Page<EnrollmentResponse> courseEnrollments(Long courseId, String requesterId, Pageable pageable) {
-        Course course = courseRepository.findById(courseId)
-                .orElseThrow(() -> new CourseNotFoundException(courseId));
+        Course course = courseRepository.getByIdOrThrow(courseId);
         if (!course.isOwnedBy(requesterId)) {
             throw new ForbiddenException("본인이 개설한 강의의 수강생만 조회할 수 있습니다.");
         }
@@ -123,7 +121,7 @@ public class EnrollmentService {
      * 호출부에서 갈린다.
      */
     private CourseSeatSnapshot lockCourseForEnrollment(Long courseId, String userId, String action) {
-        Course course = lockCourse(courseId);
+        Course course = courseRepository.getForUpdateOrThrow(courseId);
 
         if (!course.isOpenForEnrollment()) {
             throw new InvalidCourseStateException("모집 중인 강의만 " + action + "할 수 있습니다. status=" + course.getStatus());
@@ -146,18 +144,13 @@ public class EnrollmentService {
      * 모집중인 강의에만 허용되는 것과 같은 규칙을 취소로 인한 자동 승급에도 동일하게 적용).
      */
     private void promoteNextWaitlisted(Long courseId) {
-        Course course = lockCourse(courseId);
+        Course course = courseRepository.getForUpdateOrThrow(courseId);
         if (!course.isOpenForEnrollment()) {
             return;
         }
 
-        enrollmentRepository.findFirstByCourseIdAndStatusOrderByAppliedAtAsc(courseId, EnrollmentStatus.WAITLISTED)
+        enrollmentRepository.findFirstByCourseIdAndStatusOrderByAppliedAtAscIdAsc(courseId, EnrollmentStatus.WAITLISTED)
                 .ifPresent(Enrollment::promote);
-    }
-
-    private Course lockCourse(Long courseId) {
-        return courseRepository.findByIdForUpdate(courseId)
-                .orElseThrow(() -> new CourseNotFoundException(courseId));
     }
 
     private void requireNoActiveEnrollment(Long courseId, String userId) {

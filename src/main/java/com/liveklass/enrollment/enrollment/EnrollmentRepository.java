@@ -35,7 +35,12 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
      * 좌석이 빌 때 승급시킬 다음 대기자(가장 먼저 대기열에 등록한 사람). 락 없이 조회하면
      * 승급 대상자가 "동시에 자기 자신의 대기 신청을 취소"하는 경우와 경합해, 이미 취소된
      * 신청을 다시 PENDING으로 되살릴 수 있어 락을 건다.
+     *
+     * appliedAt만으로 정렬하면 안 된다 — DB 컬럼이 MySQL DATETIME(초 단위, 마이크로초 정밀도
+     * 없음)이라 같은 초에 여러 명이 대기 등록하면 값이 정확히 같아진다. 이 경우 정렬 기준이
+     * 하나뿐이면 동률 행의 반환 순서를 MySQL이 보장하지 않아 FIFO가 깨질 수 있다. auto-increment
+     * id는 이 락으로 직렬화된 등록 순서를 정확히 반영하므로 세컨더리 정렬키로 추가해 동률을 깬다.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    Optional<Enrollment> findFirstByCourseIdAndStatusOrderByAppliedAtAsc(Long courseId, EnrollmentStatus status);
+    Optional<Enrollment> findFirstByCourseIdAndStatusOrderByAppliedAtAscIdAsc(Long courseId, EnrollmentStatus status);
 }

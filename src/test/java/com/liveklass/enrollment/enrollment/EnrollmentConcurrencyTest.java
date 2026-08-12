@@ -9,7 +9,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
@@ -44,7 +43,7 @@ class EnrollmentConcurrencyTest {
         int requestCount = 30;
 
         Course course = new Course("creator-1", "동시성 테스트 강의", "설명",
-                BigDecimal.valueOf(10_000), capacity, LocalDate.now(), LocalDate.now().plusDays(30));
+                10_000L, capacity, LocalDate.now(), LocalDate.now().plusDays(30));
         course.open();
         Long courseId = courseRepository.save(course).getId();
 
@@ -97,7 +96,7 @@ class EnrollmentConcurrencyTest {
         int requestCount = 10;
 
         Course course = new Course("creator-1", "중복클릭 테스트 강의", "설명",
-                BigDecimal.valueOf(10_000), 10, LocalDate.now(), LocalDate.now().plusDays(30));
+                10_000L, 10, LocalDate.now(), LocalDate.now().plusDays(30));
         course.open();
         Long courseId = courseRepository.save(course).getId();
 
@@ -149,7 +148,7 @@ class EnrollmentConcurrencyTest {
         int capacity = 3;
 
         Course course = new Course("creator-1", "다중 승급 테스트 강의", "설명",
-                BigDecimal.valueOf(10_000), capacity, LocalDate.now(), LocalDate.now().plusDays(30));
+                10_000L, capacity, LocalDate.now(), LocalDate.now().plusDays(30));
         course.open();
         Long courseId = courseRepository.save(course).getId();
 
@@ -220,7 +219,7 @@ class EnrollmentConcurrencyTest {
         int requestCount = 10;
 
         Course course = new Course("creator-1", "중복취소 테스트 강의", "설명",
-                BigDecimal.valueOf(10_000), 1, LocalDate.now(), LocalDate.now().plusDays(30));
+                10_000L, 1, LocalDate.now(), LocalDate.now().plusDays(30));
         course.open();
         Long courseId = courseRepository.save(course).getId();
 
@@ -265,7 +264,7 @@ class EnrollmentConcurrencyTest {
 
     /**
      * 좌석 보유자가 취소하면서 대기 1순위를 승급시키는 시점에, 하필 그 대기자 본인도 자기
-     * 대기 신청을 취소하면 경합이 생긴다. findFirstByCourseIdAndStatusOrderByAppliedAtAsc에
+     * 대기 신청을 취소하면 경합이 생긴다. findFirstByCourseIdAndStatusOrderByAppliedAtAscIdAsc에
      * 락이 없으면, 본인이 이미 취소(CANCELLED)한 신청이 뒤늦게 도착한 승급 처리에 의해
      * PENDING으로 되살아날 수 있었다. 어느 스레드가 먼저 끝나든 결과는 "대기자는 취소된
      * 상태로 남는다"로 항상 같아야 한다.
@@ -273,7 +272,7 @@ class EnrollmentConcurrencyTest {
     @Test
     void 대기자가_승급과_동시에_스스로_취소해도_취소상태로_남는다() throws InterruptedException {
         Course course = new Course("creator-1", "대기자 자기취소 경합 테스트", "설명",
-                BigDecimal.valueOf(10_000), 1, LocalDate.now(), LocalDate.now().plusDays(30));
+                10_000L, 1, LocalDate.now(), LocalDate.now().plusDays(30));
         course.open();
         Long courseId = courseRepository.save(course).getId();
 

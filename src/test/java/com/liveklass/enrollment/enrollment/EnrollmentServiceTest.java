@@ -11,12 +11,12 @@ import com.liveklass.enrollment.course.CourseRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
-import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -39,7 +39,10 @@ class EnrollmentServiceTest {
     @Mock
     private EnrollmentRepository enrollmentRepository;
 
-    @Mock
+    // getByIdOrThrow/getForUpdateOrThrow는 CourseRepository의 default 메서드다. Mockito는
+    // 기본적으로 default 메서드도 스텁 없이 호출하면 null을 반환하고 실제 본문(findById/
+    // findByIdForUpdate 위임)을 실행하지 않으므로, CALLS_REAL_METHODS로 실제 로직이 동작하게 한다.
+    @Mock(answer = Answers.CALLS_REAL_METHODS)
     private CourseRepository courseRepository;
 
     private EnrollmentService enrollmentService;
@@ -51,7 +54,7 @@ class EnrollmentServiceTest {
     }
 
     private Course openCourse(int capacity) {
-        Course course = new Course("creator-1", "제목", "설명", BigDecimal.valueOf(10_000), capacity,
+        Course course = new Course("creator-1", "제목", "설명", 10_000L, capacity,
                 LocalDate.now(), LocalDate.now().plusDays(30));
         course.open();
         return course;
@@ -67,7 +70,7 @@ class EnrollmentServiceTest {
 
     @Test
     void 모집중이_아닌_강의는_신청할_수_없다() {
-        Course draftCourse = new Course("creator-1", "제목", "설명", BigDecimal.TEN, 10,
+        Course draftCourse = new Course("creator-1", "제목", "설명", 10L, 10,
                 LocalDate.now(), LocalDate.now().plusDays(30));
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(draftCourse));
 
@@ -171,7 +174,7 @@ class EnrollmentServiceTest {
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(openCourse(1)));
 
         Enrollment waitlisted = Enrollment.waitlisted(1L, "user-2", LocalDateTime.now(clock).minusMinutes(5));
-        when(enrollmentRepository.findFirstByCourseIdAndStatusOrderByAppliedAtAsc(1L, EnrollmentStatus.WAITLISTED))
+        when(enrollmentRepository.findFirstByCourseIdAndStatusOrderByAppliedAtAscIdAsc(1L, EnrollmentStatus.WAITLISTED))
                 .thenReturn(Optional.of(waitlisted));
 
         enrollmentService.cancel(10L, "user-1");
@@ -184,7 +187,7 @@ class EnrollmentServiceTest {
         Enrollment holder = new Enrollment(1L, "user-1", LocalDateTime.now(clock));
         when(enrollmentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(holder));
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(openCourse(1)));
-        when(enrollmentRepository.findFirstByCourseIdAndStatusOrderByAppliedAtAsc(1L, EnrollmentStatus.WAITLISTED))
+        when(enrollmentRepository.findFirstByCourseIdAndStatusOrderByAppliedAtAscIdAsc(1L, EnrollmentStatus.WAITLISTED))
                 .thenReturn(Optional.empty());
 
         var response = enrollmentService.cancel(10L, "user-1");
@@ -274,7 +277,7 @@ class EnrollmentServiceTest {
 
     @Test
     void 모집중이_아닌_강의는_대기신청할_수_없다() {
-        Course draftCourse = new Course("creator-1", "제목", "설명", BigDecimal.TEN, 10,
+        Course draftCourse = new Course("creator-1", "제목", "설명", 10L, 10,
                 LocalDate.now(), LocalDate.now().plusDays(30));
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(draftCourse));
 
