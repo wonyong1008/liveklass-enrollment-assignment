@@ -63,10 +63,10 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * DTO의 @Size/@Digits 등으로 필드별 길이·범위 검증을 해왔지만(title/description/price 등),
-     * 새 필드를 추가하면서 매칭되는 DB 컬럼 제약을 놓치는 실수가 실제로 세 번 반복됐다
-     * (.notes/버그수정기록.md 참고). 개별 필드 검증은 계속 유지하되, 혹시 놓친 경우를 대비한
-     * 안전망으로 DB 제약 위반도 500이 아니라 400으로 응답한다.
+     * DTO의 @Size/@Digits 등으로 필드별 길이·범위 검증을 해왔지만(title/description 등), 새
+     * 필드를 추가하면서 매칭되는 DB 컬럼 제약을 놓치는 실수가 실제로 여러 번 반복됐다. 개별
+     * 필드 검증은 계속 유지하되, 혹시 놓친 경우를 대비한 안전망으로 DB 제약 위반도 500이
+     * 아니라 400으로 응답한다.
      */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ProblemDetail handleDataIntegrityViolation(DataIntegrityViolationException ex, HttpServletRequest request) {
