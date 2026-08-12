@@ -15,6 +15,7 @@ public record CourseCreateRequest(
         @Size(max = 200, message = "제목은 200자를 넘을 수 없습니다.")
         String title,
 
+        @Size(max = 5000, message = "설명은 5000자를 넘을 수 없습니다.")
         String description,
 
         @NotNull(message = "가격은 필수입니다.")
