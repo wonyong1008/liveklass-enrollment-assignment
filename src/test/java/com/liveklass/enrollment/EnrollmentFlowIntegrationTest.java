@@ -49,7 +49,8 @@ class EnrollmentFlowIntegrationTest {
     @Test
     void 토큰_없이_요청하면_401을_반환한다() throws Exception {
         mockMvc.perform(get("/api/enrollments/me"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value("인증 토큰이 없거나 유효하지 않습니다."));
     }
 
     @Test
