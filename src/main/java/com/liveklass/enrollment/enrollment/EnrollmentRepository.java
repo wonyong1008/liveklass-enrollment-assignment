@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Optional;
 
 public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
@@ -17,7 +16,7 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
 
     long countByCourseIdAndStatus(Long courseId, EnrollmentStatus status);
 
-    List<Enrollment> findByCourseIdAndUserIdAndStatusIn(Long courseId, String userId, Collection<EnrollmentStatus> statuses);
+    boolean existsByCourseIdAndUserIdAndStatusIn(Long courseId, String userId, Collection<EnrollmentStatus> statuses);
 
     /**
      * confirm/cancel처럼 신청 건 자체를 변경하는 작업 전용. 락 없는 findById로 조회하면
