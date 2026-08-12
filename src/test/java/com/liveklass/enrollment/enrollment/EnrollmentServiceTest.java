@@ -81,8 +81,8 @@ class EnrollmentServiceTest {
     void 이미_신청한_강의는_중복신청할_수_없다() {
         Course course = openCourse(10);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
-        when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(List.of(new Enrollment(1L, "user-1", LocalDateTime.now())));
+        when(enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
+                .thenReturn(true);
 
         assertThatThrownBy(() -> enrollmentService.apply("user-1", 1L))
                 .isInstanceOf(DuplicateEnrollmentException.class);
@@ -92,8 +92,8 @@ class EnrollmentServiceTest {
     void 정원이_가득_차면_신청할_수_없다() {
         Course course = openCourse(2);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
-        lenient().when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(List.of());
+        lenient().when(enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
+                .thenReturn(false);
         when(enrollmentRepository.countByCourseIdAndStatusIn(any(), any())).thenReturn(2L);
 
         assertThatThrownBy(() -> enrollmentService.apply("user-1", 1L))
@@ -104,8 +104,8 @@ class EnrollmentServiceTest {
     void 정원이_남아있으면_신청에_성공한다() {
         Course course = openCourse(2);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
-        lenient().when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(List.of());
+        lenient().when(enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
+                .thenReturn(false);
         when(enrollmentRepository.countByCourseIdAndStatusIn(any(), any())).thenReturn(1L);
         when(enrollmentRepository.save(any(Enrollment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -252,8 +252,8 @@ class EnrollmentServiceTest {
     void 정원이_남아있으면_대기신청할_수_없다() {
         Course course = openCourse(2);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
-        lenient().when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(List.of());
+        lenient().when(enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
+                .thenReturn(false);
         when(enrollmentRepository.countByCourseIdAndStatusIn(any(), any())).thenReturn(1L);
 
         assertThatThrownBy(() -> enrollmentService.joinWaitlist("user-1", 1L))
@@ -264,8 +264,8 @@ class EnrollmentServiceTest {
     void 정원이_가득_차면_대기신청할_수_있다() {
         Course course = openCourse(2);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
-        lenient().when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(List.of());
+        lenient().when(enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
+                .thenReturn(false);
         when(enrollmentRepository.countByCourseIdAndStatusIn(any(), any())).thenReturn(2L);
         when(enrollmentRepository.save(any(Enrollment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -288,8 +288,8 @@ class EnrollmentServiceTest {
     void 이미_대기중이면_중복으로_대기신청할_수_없다() {
         Course course = openCourse(1);
         when(courseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(course));
-        when(enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
-                .thenReturn(List.of(Enrollment.waitlisted(1L, "user-1", LocalDateTime.now())));
+        when(enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(any(), any(), any()))
+                .thenReturn(true);
 
         assertThatThrownBy(() -> enrollmentService.joinWaitlist("user-1", 1L))
                 .isInstanceOf(DuplicateEnrollmentException.class);
