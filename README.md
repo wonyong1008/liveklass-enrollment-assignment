@@ -314,7 +314,14 @@ UPDATE가 무조건 실행되기 때문). 이 조회에도 `@Lock(PESSIMISTIC_WR
 ### 에러 응답 포맷
 
 Spring 6의 `ProblemDetail`(RFC 7807)을 사용해 일관된 에러 응답 포맷(`type`, `title`, `status`, `detail`, `instance`)을
-제공합니다. 별도 커스텀 에러 DTO를 만들지 않고 표준을 따랐습니다.
+제공합니다. 별도 커스텀 에러 DTO를 만들지 않고 표준을 따랐습니다. 처음엔 `instance`(요청 경로)를 `BusinessException`
+핸들러에서만 채워서 핸들러마다 응답 필드가 미묘하게 달랐는데, `problem(status, detail, request)` 공통 헬퍼로 뽑아
+모든 핸들러가 같은 방식으로 `ProblemDetail`을 만들도록 통일했습니다.
+
+DTO의 `@Size`/`@Digits`로 필드별 길이·범위를 검증해왔지만(`title`/`description`/`userId`/`price`), 이 패턴을 새
+필드에 적용하는 걸 실제로 세 번이나 놓친 적이 있어(`.notes/버그수정기록.md` 참고), `DataIntegrityViolationException`
+안전망 핸들러를 추가했습니다. 개별 필드 검증은 "무엇이 왜 잘못됐는지" 구체적인 메시지를 줄 수 있어 계속 유지하되,
+혹시 놓친 필드가 있어도 500이 아니라 400으로 떨어지도록 마지막 방어선을 깔아둔 것입니다.
 
 ### 비밀값 관리 — .env
 
@@ -357,7 +364,10 @@ join도 발생하지 않습니다. QueryDSL은 여러 optional 조건을 조합�
 터져서 400이 아니라 500이 났습니다. `@Size(max=...)`를 DB 컬럼 길이에 맞춰 추가했습니다. `userId`는 토큰 발급
 시점(`POST /api/auth/token`)에 한 번만 검증하면, 이후 이 토큰에서 파생되는 모든 요청(강의 개설의 `creatorId`,
 수강신청의 `userId`)에 전부 적용되므로 한 곳만 고치면 됩니다. 같은 이유로 `description`(TEXT 컬럼, 최대 65,535바이트)에도
-5000자 상한을 추가해, title/userId를 고칠 때 같이 놓쳤던 같은 종류의 구멍을 막았습니다.
+5000자 상한을 추가해, title/userId를 고칠 때 같이 놓쳤던 같은 종류의 구멍을 막았습니다. 세 번째로 놓친 곳은 `price`
+(`DECIMAL(12,2)`)였습니다 — 정수부 10자리를 넘는 값을 보내면 똑같이 500이 났고, `@Digits(integer=10, fraction=2)`로
+고쳤습니다. 같은 버그 패턴이 세 번 반복된 뒤에야 "필드별 검증 대신 DB 제약 위반 자체를 안전망으로 잡자"는 결론에
+이르렀습니다(바로 위 "에러 응답 포맷" 절의 `DataIntegrityViolationException` 핸들러).
 
 ### 목록 API 기본 정렬
 
@@ -365,6 +375,21 @@ join도 발생하지 않습니다. QueryDSL은 여러 optional 조건을 조합�
 활발히 일어나는 이 서비스 특성상, 페이지를 넘기는 사이 데이터가 바뀌면 같은 항목이 두 페이지에 중복되거나 아예
 빠질 수 있습니다. 강의 목록/내 신청 목록/강의별 수강생 목록 전부 `@PageableDefault(sort = "id")`로 기본 정렬을
 지정해, 클라이언트가 별도로 `sort` 파라미터를 안 줘도 안정적인 순서를 보장합니다.
+
+### 락 경합 실패도 409로
+
+`apply()`/`cancel()`처럼 `Course`·`Enrollment` row에 비관적 락을 거는 경로에서, 동시 요청이 극단적으로 몰려
+InnoDB의 `innodb_lock_wait_timeout`을 넘기거나 데드락이 나면 `PessimisticLockingFailureException`이 발생합니다.
+서버 결함이 아니라 "지금 몰려서 못 처리한" 일시적 상황이므로, catch-all(500)이 아니라 재시도를 유도하는 409로
+따로 응답하도록 전용 핸들러를 추가했습니다.
+
+### CourseService.open()/close()도 락 사용으로 통일
+
+`open()`/`close()`만 락 없는 `findById`로 강의를 조회하고 있었습니다. 지금은 상태 전이가 멱등적(중복 호출해도
+최종 상태가 같음)이라 데이터 손상으로 이어지진 않지만, 이 코드베이스에서 "강의/신청 상태를 읽고 바꾸는" 경로는
+전부 락을 쓰는 게 규칙인데 여기만 벗어나 있었습니다. 이미 세 번 반복된 REPEATABLE READ 스냅샷 버그
+(아래 "Enrollment 자체도 비관적 락으로 조회하는 이유" 참고)가 향후 이 메서드에 관련 로직이 추가될 때 재발할
+함정이라 판단해 `findByIdForUpdate` + `READ_COMMITTED`로 맞췄습니다.
 
 ### 고려했지만 적용하지 않은 것들
 
@@ -374,6 +399,10 @@ join도 발생하지 않습니다. QueryDSL은 여러 optional 조건을 조합�
 - **`Course.transitionTo`/`Enrollment.transitionTo` 중복 제거**: 상태 전이 가드 로직이 두 엔티티에 거의 똑같이
   4줄씩 있습니다. 서로 다른 enum 타입과 예외 타입을 다루기 때문에 공통 추상화(제네릭 인터페이스 등)를 만들면 오히려
   두 곳 다 읽기 어려워질 것 같아 중복을 그대로 뒀습니다. "세 줄 비슷한 코드가 섣부른 추상화보다 낫다"는 판단입니다.
+- **`DataIntegrityViolationException` 핸들러가 원인을 세분화하지 않음**: 지금은 길이/범위 초과든, (있다면) FK·NOT NULL
+  위반 같은 진짜 서버 버그든 전부 400으로 응답합니다. SQLState를 파싱해 구분할 수도 있지만 DB 벤더별로 메시지
+  포맷이 다르고 취약한 코드가 되기 쉬워 보류했습니다. 서버 로그에는 전체 스택트레이스를 남기므로(`log.warn`),
+  상태코드가 아니라 로그 기반으로 알림을 거는 운영 방식이라면 이 한계는 크게 문제되지 않는다고 판단했습니다.
 
 ## 테스트 실행 방법
 
