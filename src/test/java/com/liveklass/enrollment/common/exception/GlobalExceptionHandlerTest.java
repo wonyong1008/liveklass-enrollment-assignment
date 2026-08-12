@@ -40,6 +40,18 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.detail").exists());
     }
 
+    @Test
+    void 요청_본문이_깨진_JSON이면_500이_아니라_400으로_응답한다() throws Exception {
+        String token = issueToken("malformed-body-user");
+
+        mockMvc.perform(post("/api/courses")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content("{ 이거 json 아님"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
     private String issueToken(String userId) throws Exception {
         String response = mockMvc.perform(post("/api/auth/token")
                         .contentType("application/json")
