@@ -15,7 +15,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -48,8 +47,7 @@ class EnrollmentServiceTest {
 
     @BeforeEach
     void setUp() {
-        enrollmentService = new EnrollmentService(enrollmentRepository, courseRepository, clock);
-        ReflectionTestUtils.setField(enrollmentService, "cancellableDays", 7L);
+        enrollmentService = new EnrollmentService(enrollmentRepository, courseRepository, clock, 7L);
     }
 
     private Course openCourse(int capacity) {
