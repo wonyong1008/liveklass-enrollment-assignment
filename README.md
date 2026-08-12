@@ -64,7 +64,13 @@ docker compose up -d mysql
 ./gradlew bootRun
 ```
 
-기본적으로 `local` 프로필(`application-local.yml`)이 활성화되어 위 MySQL에 접속합니다.
+기본적으로 `local` 프로필(`application-local.yml`)이 활성화되어 위 MySQL에 접속합니다. `.env`를 기본값 그대로
+쓰면 별도 설정 없이 붙지만, `.env`의 `MYSQL_USER`/`MYSQL_PASSWORD`/`MYSQL_DATABASE`를 바꿨다면 이 경로(로컬
+gradle 실행)는 `.env`를 자동으로 읽지 않으므로 같은 값을 환경변수로 직접 export하고 실행해야 합니다.
+
+```bash
+set -a && source .env && set +a && ./gradlew bootRun
+```
 
 두 방법 모두 공통:
 
@@ -311,6 +317,11 @@ AWS Parameter Store/Secrets Manager 같은 별도 비밀 관리 인프라는 과
 비밀번호, JWT 서명 키처럼 코드에 하드코딩하면 안 되는 값은 `docker-compose.yml`에서 분리해 `.env`(git 미추적)로 주입하고,
 필요한 키 목록은 `.env.example`로 문서화했습니다. 운영 환경으로 옮긴다면 이 자리를 Parameter Store/Secrets Manager 등으로
 교체하는 지점이 됩니다.
+
+처음엔 `application-local.yml`(로컬 gradle 실행 경로)에 DB 계정/비밀번호가 그대로 하드코딩되어 있어서, "DB 비밀번호를
+.env로 분리했다"는 설명이 docker-compose 경로에만 해당하고 로컬 실행 경로엔 적용이 안 되는 불일치가 있었습니다.
+`${MYSQL_USER:enrollment}` 형태의 플레이스홀더로 바꿔서 두 실행 경로 모두 같은 값을 쓰도록 맞췄습니다(실제로 잘못된
+비밀번호를 환경변수로 넘겨 접속이 거부되는 것까지 확인).
 
 ### record 사용 범위
 
