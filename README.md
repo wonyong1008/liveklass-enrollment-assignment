@@ -253,6 +253,11 @@ erDiagram
 처리되며, 승급된 엔트리는 `enrollmentRepository.save()`를 명시적으로 호출하지 않아도 JPA 변경 감지(dirty checking)로 같은
 트랜잭션 커밋 시 반영됩니다.
 
+승급 전에는 강의가 아직 모집중(`OPEN`)인지도 확인합니다. `apply()`/`joinWaitlist()`는 모집중인 강의에만 허용되는데,
+취소로 인한 자동 승급 경로에는 이 규칙이 처음에 빠져있었습니다 — 강의를 마감(`CLOSED`)한 뒤에 좌석 보유자가 취소하면
+대기자가 새로 좌석을 배정받는 상황이 가능했습니다. `promoteNextWaitlisted()`에서 락으로 조회한 `Course`의 상태를 확인해
+마감된 강의면 승급을 건너뛰도록 고쳤습니다(`WaitlistFlowIntegrationTest#강의가_마감된_뒤에는_취소해도_대기자가_승급되지_않는다`).
+
 ### 쓰기 트랜잭션을 READ_COMMITTED로 명시한 이유
 
 위 "같은 락 재사용" 설명만으로는 실제로 안전하지 않은 지점이 하나 있었습니다. `cancel()`의 **첫 쿼리가 락 없는 일반 SELECT**
@@ -343,6 +348,24 @@ join도 발생하지 않습니다. QueryDSL은 여러 optional 조건을 조합�
 목록 API가 Spring Data의 `Page<T>`를 그대로 반환하면 `pageable`, `sort` 같은 Spring 내부 구현 세부사항이 API 계약에 그대로
 노출됩니다. 서비스 레이어는 `Page<T>`를 반환하되, 컨트롤러 경계에서 `content`/`page`/`size`/`totalElements`/`totalPages`/
 `hasNext`만 남긴 `PageResponse<T>`로 감싸 클라이언트에는 필요한 필드만 노출합니다.
+
+### 입력 길이 검증 — DB 컬럼과 맞추기
+
+`TokenRequest.userId`, `CourseCreateRequest.title`은 처음에 `@NotBlank`만 있고 길이 제한이 없었습니다. 이 값들은
+각각 `enrollment.user_id`/`course.creator_id`(`VARCHAR(64)`), `course.title`(`VARCHAR(200)`)에 저장되는데, 컬럼
+길이를 넘는 값이 들어오면 검증 단계에서 걸러지지 않고 INSERT 시점에 DB 예외(`DataIntegrityViolationException`)로
+터져서 400이 아니라 500이 났습니다. `@Size(max=...)`를 DB 컬럼 길이에 맞춰 추가했습니다. `userId`는 토큰 발급
+시점(`POST /api/auth/token`)에 한 번만 검증하면, 이후 이 토큰에서 파생되는 모든 요청(강의 개설의 `creatorId`,
+수강신청의 `userId`)에 전부 적용되므로 한 곳만 고치면 됩니다.
+
+### 고려했지만 적용하지 않은 것들
+
+- **강의 상세조회의 count 쿼리 통합**: `getDetail()`이 신청인원/대기인원을 각각 별도 COUNT 쿼리로 조회합니다. `GROUP BY status`
+  쿼리 하나로 합칠 수도 있지만, 둘 다 인덱스(`idx_enrollment_course_status`)를 타는 가벼운 COUNT라 실제 이득에 비해
+  프로젝션/집계 매핑 코드가 늘어나는 비용이 더 크다고 판단해 지금 형태로 유지했습니다.
+- **`Course.transitionTo`/`Enrollment.transitionTo` 중복 제거**: 상태 전이 가드 로직이 두 엔티티에 거의 똑같이
+  4줄씩 있습니다. 서로 다른 enum 타입과 예외 타입을 다루기 때문에 공통 추상화(제네릭 인터페이스 등)를 만들면 오히려
+  두 곳 다 읽기 어려워질 것 같아 중복을 그대로 뒀습니다. "세 줄 비슷한 코드가 섣부른 추상화보다 낫다"는 판단입니다.
 
 ## 테스트 실행 방법
 
