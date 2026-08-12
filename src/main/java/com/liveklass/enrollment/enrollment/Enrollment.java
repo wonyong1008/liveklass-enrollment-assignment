@@ -51,17 +51,19 @@ public class Enrollment extends BaseTimeEntity {
     private LocalDateTime cancelledAt;
 
     public Enrollment(Long courseId, String userId, LocalDateTime appliedAt) {
+        this(courseId, userId, appliedAt, EnrollmentStatus.PENDING);
+    }
+
+    private Enrollment(Long courseId, String userId, LocalDateTime appliedAt, EnrollmentStatus status) {
         this.courseId = courseId;
         this.userId = userId;
-        this.status = EnrollmentStatus.PENDING;
+        this.status = status;
         this.appliedAt = appliedAt;
     }
 
     /** 정원이 가득 찼을 때 대기 상태로 생성한다. */
     public static Enrollment waitlisted(Long courseId, String userId, LocalDateTime appliedAt) {
-        Enrollment enrollment = new Enrollment(courseId, userId, appliedAt);
-        enrollment.status = EnrollmentStatus.WAITLISTED;
-        return enrollment;
+        return new Enrollment(courseId, userId, appliedAt, EnrollmentStatus.WAITLISTED);
     }
 
     public boolean isOwnedBy(String userId) {
