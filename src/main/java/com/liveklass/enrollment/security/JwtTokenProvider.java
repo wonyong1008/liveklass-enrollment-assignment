@@ -10,6 +10,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Optional;
 
 @Component
 public class JwtTokenProvider {
@@ -33,19 +34,20 @@ public class JwtTokenProvider {
                 .compact();
     }
 
-    public boolean isValid(String token) {
+    /**
+     * 토큰을 한 번만 파싱/서명검증해서 유효하면 subject(userId)를 돌려준다. 검증과 subject
+     * 추출을 별도 메서드로 나누면 호출부에서 같은 토큰을 두 번 파싱/검증하게 되어(인증이
+     * 필요한 모든 요청마다 HMAC 서명검증이 두 번 도는 비효율) 하나로 합쳤다.
+     */
+    public Optional<String> resolveUserId(String token) {
         try {
-            Jwts.parser().verifyWith(key).build().parseSignedClaims(token);
-            return true;
+            String subject = Jwts.parser().verifyWith(key).build()
+                    .parseSignedClaims(token)
+                    .getPayload()
+                    .getSubject();
+            return Optional.of(subject);
         } catch (JwtException | IllegalArgumentException e) {
-            return false;
+            return Optional.empty();
         }
-    }
-
-    public String getUserId(String token) {
-        return Jwts.parser().verifyWith(key).build()
-                .parseSignedClaims(token)
-                .getPayload()
-                .getSubject();
     }
 }
