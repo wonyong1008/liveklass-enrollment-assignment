@@ -105,4 +105,54 @@ class WaitlistFlowIntegrationTest {
                 .andExpect(jsonPath("$.content[0].id").value(studentBEnrollmentId))
                 .andExpect(jsonPath("$.content[0].status").value("PENDING"));
     }
+
+    /**
+     * 강의가 모집 마감(CLOSED)된 뒤에는, 좌석 보유자가 취소하더라도 대기자를 새로
+     * 승급시키면 안 된다. 이미 마감 안내를 받은 상태에서 갑자기 결제 대상이 되는 건
+     * 사용자에게 혼란을 준다.
+     */
+    @Test
+    void 강의가_마감된_뒤에는_취소해도_대기자가_승급되지_않는다() throws Exception {
+        String creatorToken = issueToken("close-creator");
+        String holderToken = issueToken("close-holder");
+        String waiterToken = issueToken("close-waiter");
+
+        Map<String, Object> createRequest = Map.of(
+                "title", "마감 후 취소 테스트",
+                "description", "d",
+                "price", BigDecimal.valueOf(10_000),
+                "capacity", 1,
+                "startDate", LocalDate.now().toString(),
+                "endDate", LocalDate.now().plusDays(30).toString()
+        );
+
+        String createResponse = mockMvc.perform(withAuth(post("/api/courses"), creatorToken)
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(createRequest)))
+                .andReturn().getResponse().getContentAsString();
+        Long courseId = objectMapper.readTree(createResponse).get("id").asLong();
+
+        mockMvc.perform(withAuth(post("/api/courses/" + courseId + "/open"), creatorToken));
+
+        String enrollResponse = mockMvc.perform(withAuth(post("/api/enrollments"), holderToken)
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(Map.of("courseId", courseId))))
+                .andReturn().getResponse().getContentAsString();
+        Long holderEnrollmentId = objectMapper.readTree(enrollResponse).get("id").asLong();
+
+        String waitlistResponse = mockMvc.perform(withAuth(post("/api/courses/" + courseId + "/waitlist"), waiterToken))
+                .andReturn().getResponse().getContentAsString();
+        Long waiterEnrollmentId = objectMapper.readTree(waitlistResponse).get("id").asLong();
+
+        mockMvc.perform(withAuth(post("/api/courses/" + courseId + "/close"), creatorToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(withAuth(post("/api/enrollments/" + holderEnrollmentId + "/cancel"), holderToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        mockMvc.perform(withAuth(get("/api/enrollments/me"), waiterToken))
+                .andExpect(jsonPath("$.content[0].id").value(waiterEnrollmentId))
+                .andExpect(jsonPath("$.content[0].status").value("WAITLISTED"));
+    }
 }
