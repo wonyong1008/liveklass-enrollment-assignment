@@ -7,7 +7,6 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 
 public record CourseCreateRequest(
@@ -20,7 +19,7 @@ public record CourseCreateRequest(
 
         @NotNull(message = "가격은 필수입니다.")
         @PositiveOrZero(message = "가격은 0 이상이어야 합니다.")
-        BigDecimal price,
+        Long price,
 
         @NotNull(message = "정원은 필수입니다.")
         @Positive(message = "정원은 1명 이상이어야 합니다.")

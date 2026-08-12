@@ -9,7 +9,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
 
@@ -61,7 +60,7 @@ class EnrollmentFlowIntegrationTest {
         Map<String, Object> createRequest = Map.of(
                 "title", "실전 스프링 부트",
                 "description", "백엔드 실무 강의",
-                "price", BigDecimal.valueOf(50_000),
+                "price", 50_000L,
                 "capacity", 1,
                 "startDate", LocalDate.now().toString(),
                 "endDate", LocalDate.now().plusDays(30).toString()
@@ -117,7 +116,7 @@ class EnrollmentFlowIntegrationTest {
         Map<String, Object> createRequest = Map.of(
                 "title", "정원 1명 강의",
                 "description", "설명",
-                "price", BigDecimal.valueOf(10_000),
+                "price", 10_000L,
                 "capacity", 1,
                 "startDate", LocalDate.now().toString(),
                 "endDate", LocalDate.now().plusDays(30).toString()
@@ -140,5 +139,54 @@ class EnrollmentFlowIntegrationTest {
                         .contentType("application/json")
                         .content(objectMapper.writeValueAsString(Map.of("courseId", courseId))))
                 .andExpect(status().isConflict());
+    }
+
+    /**
+     * DRAFT(미공개) 강의는 개설자 본인만 목록/상세에서 볼 수 있어야 한다. 다른 사람에게는
+     * 존재 자체를 숨기기 위해 403이 아니라 404를 준다.
+     */
+    @Test
+    void DRAFT_강의는_개설자_본인만_조회할_수_있다() throws Exception {
+        String creatorToken = issueToken("draft-owner");
+        String otherToken = issueToken("draft-stranger");
+
+        Map<String, Object> createRequest = Map.of(
+                "title", "아직 준비중인 강의",
+                "description", "d",
+                "price", 10_000L,
+                "capacity", 5,
+                "startDate", LocalDate.now().toString(),
+                "endDate", LocalDate.now().plusDays(30).toString()
+        );
+
+        String createResponse = mockMvc.perform(withAuth(post("/api/courses"), creatorToken)
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(createRequest)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long courseId = objectMapper.readTree(createResponse).get("id").asLong();
+
+        // 개설자 본인은 상세조회 가능
+        mockMvc.perform(withAuth(get("/api/courses/" + courseId), creatorToken))
+                .andExpect(status().isOk());
+
+        // 다른 사람에게는 404 (존재 자체를 숨김)
+        mockMvc.perform(withAuth(get("/api/courses/" + courseId), otherToken))
+                .andExpect(status().isNotFound());
+
+        // status=DRAFT로 목록을 조회해도 다른 사람에게는 안 보임
+        mockMvc.perform(withAuth(get("/api/courses?status=DRAFT"), otherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == " + courseId + ")]").doesNotExist());
+
+        // 개설자 본인의 DRAFT 필터 목록에는 보임
+        mockMvc.perform(withAuth(get("/api/courses?status=DRAFT"), creatorToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == " + courseId + ")]").exists());
+
+        // 상태 미지정 전체 조회에도 다른 사람의 DRAFT는 섞이지 않음
+        mockMvc.perform(withAuth(get("/api/courses"), otherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == " + courseId + ")]").doesNotExist());
     }
 }

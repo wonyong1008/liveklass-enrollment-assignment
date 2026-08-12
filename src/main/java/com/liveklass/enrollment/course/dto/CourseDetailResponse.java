@@ -3,7 +3,6 @@ package com.liveklass.enrollment.course.dto;
 import com.liveklass.enrollment.course.Course;
 import com.liveklass.enrollment.course.CourseStatus;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 
 public record CourseDetailResponse(
@@ -11,7 +10,7 @@ public record CourseDetailResponse(
         String creatorId,
         String title,
         String description,
-        BigDecimal price,
+        Long price,
         int capacity,
         int enrolledCount,
         int remainingSeats,

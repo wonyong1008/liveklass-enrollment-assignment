@@ -3,14 +3,13 @@ package com.liveklass.enrollment.course.dto;
 import com.liveklass.enrollment.course.Course;
 import com.liveklass.enrollment.course.CourseStatus;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 
 public record CourseResponse(
         Long id,
         String creatorId,
         String title,
-        BigDecimal price,
+        Long price,
         int capacity,
         LocalDate startDate,
         LocalDate endDate,

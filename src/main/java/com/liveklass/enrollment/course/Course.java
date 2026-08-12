@@ -16,7 +16,6 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 
 @Getter
@@ -38,8 +37,9 @@ public class Course extends BaseTimeEntity {
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    @Column(nullable = false, precision = 12, scale = 2)
-    private BigDecimal price;
+    /** 원화(KRW)는 소수 단위(전)를 실무에서 쓰지 않아 정수(원)로 저장한다. */
+    @Column(nullable = false)
+    private Long price;
 
     @Column(nullable = false)
     private int capacity;
@@ -55,7 +55,7 @@ public class Course extends BaseTimeEntity {
     @Column(nullable = false, length = 20)
     private CourseStatus status;
 
-    public Course(String creatorId, String title, String description, BigDecimal price,
+    public Course(String creatorId, String title, String description, Long price,
                   int capacity, LocalDate startDate, LocalDate endDate) {
         if (capacity <= 0) {
             throw new IllegalArgumentException("정원은 1명 이상이어야 합니다.");

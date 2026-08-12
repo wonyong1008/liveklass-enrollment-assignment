@@ -109,32 +109,6 @@ class GlobalExceptionHandlerTest {
     }
 
     /**
-     * price=123456789012.34는 정수부가 12자리라 @Digits(integer=10)에서 먼저 걸린다
-     * (DB까지 도달하지 않음 — DataIntegrityViolationException 안전망을 검증하려면 아래
-     * db_제약조건_위반은_500_대신_400_안전망으로_처리된다 테스트를 참고). 이 테스트는
-     * "@Digits 검증이 실제 API 경로에서 작동한다"는 것만 확인한다.
-     */
-    @Test
-    void 가격_정수부가_DB_컬럼_자릿수를_넘으면_Digits_검증으로_400으로_거부된다() throws Exception {
-        String token = issueToken("out-of-range-price-user");
-
-        mockMvc.perform(post("/api/courses")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType("application/json")
-                        .content(objectMapper.writeValueAsString(Map.of(
-                                "title", "제목",
-                                "description", "d",
-                                "price", new java.math.BigDecimal("123456789012.34"),
-                                "capacity", 10,
-                                "startDate", "2026-09-01",
-                                "endDate", "2026-10-01"
-                        ))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("가격")));
-    }
-
-    /**
      * @Size/@Digits로 필드별 검증을 해왔지만, 앞으로 누락될 수도 있는 안전망이
      * 실제로 500 대신 400을 내려주는지 핸들러를 직접 호출해 확인한다(검증을 다 통과하는
      * 요청으로는 이제 DB 제약 위반을 자연스럽게 재현하기 어렵기 때문).

@@ -3,7 +3,7 @@ CREATE TABLE course (
     creator_id   VARCHAR(64)    NOT NULL,
     title        VARCHAR(200)   NOT NULL,
     description  TEXT,
-    price        DECIMAL(12, 2) NOT NULL,
+    price        BIGINT         NOT NULL,
     capacity     INT            NOT NULL,
     start_date   DATE           NOT NULL,
     end_date     DATE           NOT NULL,

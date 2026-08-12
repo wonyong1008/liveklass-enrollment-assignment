@@ -38,17 +38,20 @@ public class CourseController {
         return courseService.create(authentication.getName(), request);
     }
 
-    @Operation(summary = "강의 목록 조회", description = "상태(status)로 필터링할 수 있다. 미지정 시 전체 조회.")
+    @Operation(summary = "강의 목록 조회", description = "상태(status)로 필터링할 수 있다. 미지정 시 공개 상태(OPEN/CLOSED)만 조회되며, "
+            + "DRAFT로 필터링하면 본인이 개설한 강의만 조회된다.")
     @GetMapping
     public PageResponse<CourseResponse> list(@Parameter(description = "DRAFT/OPEN/CLOSED") @RequestParam(required = false) CourseStatus status,
+                                              Authentication authentication,
                                               @PageableDefault(sort = "id") Pageable pageable) {
-        return PageResponse.from(courseService.list(status, pageable));
+        return PageResponse.from(courseService.list(status, authentication.getName(), pageable));
     }
 
-    @Operation(summary = "강의 상세 조회", description = "현재 신청 인원(enrolledCount), 잔여 좌석(remainingSeats)을 함께 반환한다.")
+    @Operation(summary = "강의 상세 조회", description = "현재 신청 인원(enrolledCount), 잔여 좌석(remainingSeats)을 함께 반환한다. "
+            + "DRAFT(미공개) 강의는 개설자 본인만 조회할 수 있다(그 외에는 404).")
     @GetMapping("/{courseId}")
-    public CourseDetailResponse getDetail(@PathVariable Long courseId) {
-        return courseService.getDetail(courseId);
+    public CourseDetailResponse getDetail(@PathVariable Long courseId, Authentication authentication) {
+        return courseService.getDetail(courseId, authentication.getName());
     }
 
     @Operation(summary = "모집 시작", description = "DRAFT -> OPEN. 개설자 본인만 호출할 수 있다.")

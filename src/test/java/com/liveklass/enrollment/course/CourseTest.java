@@ -4,7 +4,6 @@ import com.liveklass.enrollment.common.exception.InvalidCourseStateException;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -15,7 +14,7 @@ class CourseTest {
     private Course newCourse(int capacity) {
         return new Course(
                 "creator-1", "스프링 부트 실전", "설명",
-                BigDecimal.valueOf(50_000),
+                50_000L,
                 capacity,
                 LocalDate.now(),
                 LocalDate.now().plusMonths(1)
@@ -39,7 +38,7 @@ class CourseTest {
     @Test
     void 종료일이_시작일보다_빠르면_생성할_수_없다() {
         assertThatThrownBy(() -> new Course(
-                "creator-1", "제목", "설명", BigDecimal.TEN, 10,
+                "creator-1", "제목", "설명", 10_000L, 10,
                 LocalDate.now(), LocalDate.now().minusDays(1)))
                 .isInstanceOf(IllegalArgumentException.class);
     }

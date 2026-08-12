@@ -9,7 +9,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
 
@@ -54,7 +53,7 @@ class WaitlistFlowIntegrationTest {
         Map<String, Object> createRequest = Map.of(
                 "title", "정원 1명 강의",
                 "description", "대기열 테스트",
-                "price", BigDecimal.valueOf(10_000),
+                "price", 10_000L,
                 "capacity", 1,
                 "startDate", LocalDate.now().toString(),
                 "endDate", LocalDate.now().plusDays(30).toString()
@@ -120,7 +119,7 @@ class WaitlistFlowIntegrationTest {
         Map<String, Object> createRequest = Map.of(
                 "title", "마감 후 취소 테스트",
                 "description", "d",
-                "price", BigDecimal.valueOf(10_000),
+                "price", 10_000L,
                 "capacity", 1,
                 "startDate", LocalDate.now().toString(),
                 "endDate", LocalDate.now().plusDays(30).toString()
