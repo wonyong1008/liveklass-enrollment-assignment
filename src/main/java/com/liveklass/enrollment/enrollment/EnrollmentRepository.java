@@ -32,6 +32,11 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
 
     Page<Enrollment> findByCourseId(Long courseId, Pageable pageable);
 
-    /** 좌석이 빌 때 승급시킬 다음 대기자(가장 먼저 대기열에 등록한 사람) */
+    /**
+     * 좌석이 빌 때 승급시킬 다음 대기자(가장 먼저 대기열에 등록한 사람). 락 없이 조회하면
+     * 승급 대상자가 "동시에 자기 자신의 대기 신청을 취소"하는 경우와 경합해, 이미 취소된
+     * 신청을 다시 PENDING으로 되살릴 수 있어 락을 건다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Enrollment> findFirstByCourseIdAndStatusOrderByAppliedAtAsc(Long courseId, EnrollmentStatus status);
 }
