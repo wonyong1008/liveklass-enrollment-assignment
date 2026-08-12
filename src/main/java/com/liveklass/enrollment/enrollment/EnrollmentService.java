@@ -135,10 +135,15 @@ public class EnrollmentService {
     /**
      * 좌석을 보유하던 신청이 취소되어 자리가 하나 비었을 때, 가장 먼저 대기열에 등록한 사람을
      * PENDING으로 승급시킨다. 호출 시점에 이미 courseId에 대한 비관적 락을 다시 획득하므로
-     * 승급 처리 중 다른 신청/취소/대기 요청과 경합하지 않는다.
+     * 승급 처리 중 다른 신청/취소/대기 요청과 경합하지 않는다. 강의가 이미 모집 마감(CLOSED)된
+     * 뒤라면 새로 좌석을 배정하지 않는다 — 대기자는 WAITLISTED로 남는다(apply/joinWaitlist가
+     * 모집중인 강의에만 허용되는 것과 같은 규칙을 취소로 인한 자동 승급에도 동일하게 적용).
      */
     private void promoteNextWaitlisted(Long courseId) {
-        lockCourse(courseId);
+        Course course = lockCourse(courseId);
+        if (!course.isOpenForEnrollment()) {
+            return;
+        }
 
         enrollmentRepository.findFirstByCourseIdAndStatusOrderByAppliedAtAsc(courseId, EnrollmentStatus.WAITLISTED)
                 .ifPresent(Enrollment::promote);
@@ -150,7 +155,7 @@ public class EnrollmentService {
     }
 
     private void requireNoActiveEnrollment(Long courseId, String userId) {
-        if (!enrollmentRepository.findByCourseIdAndUserIdAndStatusIn(courseId, userId, EnrollmentStatus.ACTIVE).isEmpty()) {
+        if (enrollmentRepository.existsByCourseIdAndUserIdAndStatusIn(courseId, userId, EnrollmentStatus.ACTIVE)) {
             throw new DuplicateEnrollmentException(courseId, userId);
         }
     }
